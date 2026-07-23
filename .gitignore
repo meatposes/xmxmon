@@ -3,3 +3,7 @@ xmxmon
 *.ndjson
 captures/
 graphify-output/
+
+# Local config — copy from the .example files, never tracked.
+xmxmon.yaml
+docker-compose.override.yml

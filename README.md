@@ -68,8 +68,9 @@ samplers alive across reboots and lets you start and stop captures on demand,
 so you don't have to predict when to attach:
 
 ```sh
+cp xmxmon.yaml.example xmxmon.yaml   # your copy; gitignored, survives git pull
 mkdir -p captures
-docker compose up -d          # starts, and comes back after a reboot
+docker compose up -d                 # starts, and comes back after a reboot
 ```
 
 No `docker compose`? Some distributions (including Ubuntu's `docker.io`
@@ -101,10 +102,11 @@ curl -s localhost:9143/captures                            # where the file land
 ```
 
 Between captures it idles at a coarse sampling period, so leaving it up costs
-very little. Edit `xmxmon.yaml` to change devices, periods, or to enable the
-web UI and Prometheus exporter — see [Daemon mode](#daemon-mode) below, and
-restart the container to pick up changes. Stop it with `docker compose down`
-(or `docker rm -f xmxmon` if you started it with `docker run`).
+very little. Edit your `xmxmon.yaml` to change devices, periods, or to enable the
+web UI and Prometheus exporter — see [Configuration](#configuration) and
+[Daemon mode](#daemon-mode) below, and restart the container to pick up changes.
+Stop it with `docker compose down` (or `docker rm -f xmxmon` if you started it
+with `docker run`).
 
 Note that while the daemon is running it owns the device's performance
 counters, so stop it before using the one-shot CLI on that same GPU.
@@ -215,9 +217,27 @@ picker, so choose your Prometheus instance during import.
 
 ## Configuration
 
-All settings live in `xmxmon.yaml` (see that file for the annotated list): devices,
-metric group, sampling periods, bind address, capture directory, and the two
-feature flags. On the host, point at your own copy with `XMXMOND_CONFIG=/path/to.yaml`.
+Configuration lives in two files you own, both created by copying a tracked
+template and both gitignored — so your settings survive `git pull` and never end
+up in a commit:
+
+```sh
+cp xmxmon.yaml.example xmxmon.yaml
+cp docker-compose.override.yml.example docker-compose.override.yml   # optional
+```
+
+`xmxmon.yaml` holds daemon settings: devices, metric group, sampling periods,
+bind address, capture directory, and the two feature flags. See
+`xmxmon.yaml.example` for the annotated list. On the host, point at any copy with
+`XMXMOND_CONFIG=/path/to.yaml`.
+
+`docker-compose.override.yml` holds machine-specific deployment changes — port
+exposure, device pinning, capture volume. Compose merges it automatically when
+present, so `docker compose up -d` needs no extra arguments. Leave it out
+entirely and the tracked defaults apply.
+
+Never edit `docker-compose.yml` or the `.example` files directly; upstream owns
+those, and local edits there are exactly what `git pull` will fight with.
 
 ## Limits
 

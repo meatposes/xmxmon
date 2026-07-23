@@ -26,7 +26,8 @@ need it, it almost certainly belongs somewhere else.
 | `xmxmond.py` | Daemon: one `xmxmon --json` subprocess per device, aggregates into rates/gauges, serves HTTP. |
 | `xmxmon-tui.py` | Terminal UI. Thin HTTP client on the daemon — no GPU access of its own. |
 | `wui.html` | Web UI, served by the daemon when enabled. Vanilla JS, SSE, canvas. No build step, no dependencies. |
-| `xmxmon.yaml` | Daemon config, annotated. The single source of runtime settings. |
+| `xmxmon.yaml.example` | Tracked config template. Users copy it to `xmxmon.yaml`, which is gitignored. |
+| `docker-compose.override.yml.example` | Tracked template for machine-specific Compose changes; the real override is gitignored and auto-merged by Compose. |
 | `Dockerfile` | Ubuntu + Intel graphics PPA + `g++` build of the sampler. |
 | `docker-compose.yml` | Daemon deployment. |
 | `grafana-dashboard.json` | Import-ready dashboard; uses a datasource picker, no hardcoded UID. |
@@ -175,10 +176,16 @@ reason.
 - **Commits:** imperative subject, body explaining *why*. Never commit personal
   hostnames, IPs, emails, network names, or captured data — `.gitignore` covers the
   compiled binary, CSVs, ndjson, and `captures/`.
-- **Local operational settings are not repo settings.** Edits to `xmxmon.yaml` or
-  `docker-compose.yml` that suit one machine (extra devices, exposed ports, UI
-  enabled) should stay uncommitted. The committed versions are conservative
-  defaults for a stranger.
+- **Local operational settings are not repo settings.** `xmxmon.yaml` and
+  `docker-compose.override.yml` are gitignored user-owned files, created by
+  copying the tracked `.example` templates. Machine-specific values (extra
+  devices, exposed ports, UI enabled) belong there and must never be committed.
+  To change a default, edit the `.example` template — and keep it conservative,
+  because it is what a stranger gets.
+- **The daemon must survive a missing config.** A fresh clone has no
+  `xmxmon.yaml`, and Docker materializes a *directory* at a missing bind-mount
+  source — so config loading checks `os.path.isfile` and falls back to built-in
+  defaults with a warning instead of crashing. Keep that property.
 
 ## Known gaps
 

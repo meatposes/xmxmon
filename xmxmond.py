@@ -274,8 +274,22 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     cfg = CFG
     path = os.environ.get("XMXMOND_CONFIG", "/etc/xmxmon.yaml")
-    if os.path.exists(path):
-        cfg.update(yaml.safe_load(open(path)) or {})
+    # A missing bind-mount source makes Docker create a *directory* at the
+    # mount point, so isfile() is the real test. FALLBACK is baked into the
+    # image: without it, an unconfigured container would bind the built-in
+    # 127.0.0.1 default and be unreachable through its own port mapping.
+    FALLBACK = "/app/xmxmon.yaml.default"
+    if not os.path.isfile(path) and os.path.isfile(FALLBACK):
+        print(f"NOTE: no config at {path}; using image defaults. "
+              f"Copy xmxmon.yaml.example to xmxmon.yaml to configure.")
+        path = FALLBACK
+    if os.path.isfile(path):
+        try:
+            cfg.update(yaml.safe_load(open(path)) or {})
+        except (OSError, yaml.YAMLError) as e:
+            print(f"WARNING: could not read {path} ({e}); using built-in defaults")
+    else:
+        print(f"WARNING: no config file at {path}; using built-in defaults")
     os.environ.setdefault("ZET_ENABLE_METRICS", "1")
     for d in cfg["devices"]:
         SAMPLERS[d] = Sampler(cfg, d)

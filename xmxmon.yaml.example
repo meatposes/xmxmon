@@ -1,4 +1,10 @@
-# xmxmond configuration.
+# xmxmond configuration — TEMPLATE.
+#
+#   cp xmxmon.yaml.example xmxmon.yaml
+#
+# Your xmxmon.yaml is gitignored, so local settings survive `git pull` and are
+# never pushed. This template is tracked; edit your copy, not this file.
+#
 # Mounted at /etc/xmxmon.yaml by the compose file; override the path with
 # XMXMOND_CONFIG when running on the host.
 

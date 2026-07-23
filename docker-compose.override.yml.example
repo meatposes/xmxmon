@@ -1,0 +1,32 @@
+# Local Compose overrides — TEMPLATE.
+#
+#   cp docker-compose.override.yml.example docker-compose.override.yml
+#
+# Compose merges docker-compose.override.yml automatically when present, so
+# there is nothing extra to pass on the command line. Your copy is gitignored,
+# so machine-specific settings survive `git pull` and are never pushed.
+#
+# Everything below is commented out — uncomment only what you need.
+
+# IMPORTANT: Compose *appends* to list fields (ports, devices, volumes) when
+# merging. Overriding the port without `!override` would try to bind BOTH the
+# base 127.0.0.1:9143 and yours, and the second bind fails with "address
+# already in use". The `!override` tag replaces the list instead of extending
+# it. It needs Compose v2.24+; check with `docker compose version`.
+
+services:
+  xmxmon:
+    # Expose beyond loopback. Only do this on a trusted network: neither the
+    # web UI nor the metrics endpoint has any authentication.
+    # Set `listen: 0.0.0.0:9143` in your xmxmon.yaml to match.
+    # ports: !override
+    #   - "0.0.0.0:9143:9143"
+
+    # Pin to specific render nodes instead of the whole /dev/dri tree.
+    # devices: !override
+    #   - /dev/dri/renderD128:/dev/dri/renderD128
+
+    # Add a roomier capture location (appends to the base volumes — no
+    # !override needed when you genuinely want both).
+    # volumes:
+    #   - /mnt/scratch/xmxmon-captures:/data/captures
