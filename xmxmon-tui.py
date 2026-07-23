@@ -85,17 +85,12 @@ def device_columns(dev, s, peaks, detailed, barw, right_w=42):
         left.append(f" {label:9s}[{bar(v, barw, pk)}]{v:5.1f}%")
 
     xmx_max = max((peaks.get((dev, k), 0) for _, k in XMX), default=1) or 1
-    idle = []
     for label, key in XMX:
         v = r.get(key, 0.0)
         pk = peaks[dev, key] = max(peaks.get((dev, key), 0), v)
-        if v <= 0 and pk <= 0:
-            idle.append(label)          # collapse never-used paths to one line
-            continue
+        mark = "" if v > 0 else " (idle)"
         left.append(f" XMX {label:5s}[{bar(v / xmx_max * 100, barw)}]"
-                    f"{si(v)}/s")
-    if idle:
-        left.append(f" XMX idle: {' '.join(idle)}")
+                    f"{si(v)}/s{mark}")
 
     rd = r.get("GPU_MEMORY_BYTE_READ", 0) / 1e9
     wr = r.get("GPU_MEMORY_BYTE_WRITE", 0) / 1e9
