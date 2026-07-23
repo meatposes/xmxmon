@@ -3,6 +3,7 @@
   "uid": "xmxmon",
   "timezone": "browser",
   "refresh": "5s",
+  "schemaVersion": 39,
   "time": { "from": "now-30m", "to": "now" },
   "templating": {
     "list": [
@@ -11,6 +12,7 @@
         "label": "Prometheus",
         "type": "datasource",
         "query": "prometheus",
+        "refresh": 1,
         "current": {},
         "hide": 0
       },
@@ -18,12 +20,15 @@
         "name": "device",
         "label": "GPU device",
         "type": "query",
-        "datasource": { "uid": "${DS}" },
-        "query": "label_values(xmxmon_gauge, device)",
+        "datasource": { "type": "prometheus", "uid": "${DS}" },
+        "query": { "query": "label_values(xmxmon_gauge, device)", "refId": "StandardVariableQuery" },
         "includeAll": true,
         "multi": true,
-        "current": { "text": "All", "value": "$__all" },
-        "refresh": 1
+        "allValue": ".*",
+        "current": { "text": ["All"], "value": ["$__all"] },
+        "refresh": 2,
+        "sort": 1,
+        "hide": 0
       }
     ]
   },
@@ -31,12 +36,13 @@
     {
       "title": "XMX instructions/s by precision",
       "type": "timeseries",
-      "datasource": { "uid": "${DS}" },
+      "datasource": { "type": "prometheus", "uid": "${DS}" },
       "gridPos": { "x": 0, "y": 0, "w": 12, "h": 9 },
-      "description": "Nonzero here = the matrix engine is being fed. Mixed-precision DPAS (e.g. s8xu2) is counted under its wider operand.",
+      "description": "Nonzero = the matrix engine is being fed. Mixed-precision DPAS (e.g. s8xu2) counts under its wider operand, so 2-bit weights appear under INT8.",
       "targets": [
         {
           "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${DS}" },
           "expr": "xmxmon_rate_per_s{metric=~\"XVE_INST_EXECUTED_XMX_.*\", device=~\"$device\"}",
           "legendFormat": "dev{{device}} {{metric}}"
         }
@@ -45,19 +51,20 @@
         "defaults": {
           "unit": "short",
           "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
-        }
+        },
+        "overrides": []
       },
-      "options": { "legend": { "displayMode": "table", "placement": "bottom",
-                               "calcs": ["max", "mean"] } }
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["max", "mean"] }, "tooltip": { "mode": "multi" } }
     },
     {
       "title": "Utilization %",
       "type": "timeseries",
-      "datasource": { "uid": "${DS}" },
+      "datasource": { "type": "prometheus", "uid": "${DS}" },
       "gridPos": { "x": 12, "y": 0, "w": 12, "h": 9 },
       "targets": [
         {
           "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${DS}" },
           "expr": "xmxmon_gauge{metric=~\"GPU_BUSY|XVE_ACTIVE|XVE_THREADS_OCCUPANCY_ALL\", device=~\"$device\"}",
           "legendFormat": "dev{{device}} {{metric}}"
         }
@@ -66,18 +73,43 @@
         "defaults": {
           "unit": "percent", "min": 0, "max": 100,
           "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
-        }
+        },
+        "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "title": "Operand-prep overhead (ALU instructions/s)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS}" },
+      "gridPos": { "x": 0, "y": 9, "w": 12, "h": 8 },
+      "description": "Work done to prepare operands rather than multiply them. High relative to XMX = a conversion/dequant tax.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${DS}" },
+          "expr": "xmxmon_rate_per_s{metric=~\"XVE_INST_EXECUTED_(BITCONV|INT16|INT32|FP16|FP32|MATH)\", device=~\"$device\"}",
+          "legendFormat": "dev{{device}} {{metric}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
     },
     {
       "title": "Memory bandwidth",
       "type": "timeseries",
-      "datasource": { "uid": "${DS}" },
-      "gridPos": { "x": 0, "y": 9, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS}" },
+      "gridPos": { "x": 12, "y": 9, "w": 12, "h": 8 },
       "targets": [
         {
           "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${DS}" },
           "expr": "xmxmon_rate_per_s{metric=~\"GPU_MEMORY_BYTE_(READ|WRITE)\", device=~\"$device\"}",
           "legendFormat": "dev{{device}} {{metric}}"
         }
@@ -86,69 +118,48 @@
         "defaults": {
           "unit": "Bps",
           "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
-        }
-      }
-    },
-    {
-      "title": "ALU pipe instructions/s",
-      "type": "timeseries",
-      "datasource": { "uid": "${DS}" },
-      "gridPos": { "x": 12, "y": 9, "w": 12, "h": 8 },
-      "description": "Vector path. High ALU with zero XMX = the backend is not using the matrix engine for this phase.",
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "xmxmon_rate_per_s{metric=~\"XVE_INST_EXECUTED_ALU[0-2]_ALL\", device=~\"$device\"}",
-          "legendFormat": "dev{{device}} {{metric}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
-        }
-      }
+        },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
     },
     {
       "title": "Capture active",
       "type": "stat",
-      "datasource": { "uid": "${DS}" },
+      "datasource": { "type": "prometheus", "uid": "${DS}" },
       "gridPos": { "x": 0, "y": 17, "w": 6, "h": 4 },
       "targets": [
-        { "refId": "A", "expr": "xmxmon_capturing{device=~\"$device\"}",
-          "legendFormat": "dev{{device}}" }
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "${DS}" },
+          "expr": "xmxmon_capturing{device=~\"$device\"}",
+          "legendFormat": "dev{{device}}"
+        }
       ],
       "fieldConfig": {
         "defaults": {
           "mappings": [
-            { "type": "value", "options": { "0": { "text": "idle", "index": 0 },
-                                            "1": { "text": "CAPTURING", "index": 1 } } }
+            { "type": "value", "options": { "0": { "text": "idle", "index": 0 }, "1": { "text": "CAPTURING", "index": 1 } } }
           ],
-          "thresholds": { "mode": "absolute",
-                          "steps": [ { "color": "text", "value": null },
-                                     { "color": "orange", "value": 1 } ] }
-        }
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "text", "value": null }, { "color": "orange", "value": 1 } ] }
+        },
+        "overrides": []
       }
     },
     {
-      "title": "Everything currently scraped (last value)",
+      "title": "All scraped metrics (last value)",
       "type": "table",
-      "datasource": { "uid": "${DS}" },
+      "datasource": { "type": "prometheus", "uid": "${DS}" },
       "gridPos": { "x": 6, "y": 17, "w": 18, "h": 12 },
       "description": "Full inventory of what xmxmon exports — one row per metric per device.",
       "targets": [
-        { "refId": "A", "expr": "xmxmon_rate_per_s{device=~\"$device\"}",
-          "legendFormat": "", "instant": true, "format": "table" },
-        { "refId": "B", "expr": "xmxmon_gauge{device=~\"$device\"}",
-          "legendFormat": "", "instant": true, "format": "table" }
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_rate_per_s{device=~\"$device\"}", "legendFormat": "", "instant": true, "format": "table" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_gauge{device=~\"$device\"}", "legendFormat": "", "instant": true, "format": "table" }
       ],
       "transformations": [
         { "id": "merge", "options": {} },
-        { "id": "organize",
-          "options": { "excludeByName": { "Time": true, "job": true,
-                                          "instance": true, "__name__": true } } }
+        { "id": "organize", "options": { "excludeByName": { "Time": true, "job": true, "instance": true, "__name__": true } } }
       ]
     }
-  ],
-  "schemaVersion": 39
+  ]
 }

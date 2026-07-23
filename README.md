@@ -238,8 +238,17 @@ With `prometheus: true`, scrape it:
 
 Exported series: `xmxmon_rate_per_s{device,metric}` for counters (already converted
 to per-second), `xmxmon_gauge{device,metric}` for levels, and `xmxmon_capturing{device}`.
-`grafana-dashboard.json` imports as a starting dashboard — it uses a datasource
-picker, so choose your Prometheus instance during import.
+
+`grafana-dashboard.json` imports as a starting dashboard. On import Grafana asks
+which Prometheus datasource to use; pick yours (it defaults to your default
+Prometheus). The device filter defaults to "All".
+
+**Seeing "No data"?** Check, in order: `prometheus: true` is set in your
+`xmxmon.yaml` and the daemon was restarted (`curl localhost:9143/metrics` should
+return text, not 404); the Prometheus target is `up` (Status → Targets, job
+`xmxmon`); and the dashboard's datasource variable points at the Prometheus that
+scrapes it. The exporter being off is the most common cause — nothing downstream
+can show data that was never exported.
 
 ## Configuration
 
