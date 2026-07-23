@@ -72,6 +72,22 @@ mkdir -p captures
 docker compose up -d          # starts, and comes back after a reboot
 ```
 
+No `docker compose`? Some distributions (including Ubuntu's `docker.io`
+package) ship Docker without the Compose plugin — `docker compose version`
+will say `unknown command`. Either install it (`sudo apt install
+docker-compose-v2`, or Docker's own `docker-ce` packages), or skip Compose
+entirely — this is the same thing in one command:
+
+```sh
+docker run -d --name xmxmon --restart unless-stopped \
+    --device /dev/dri \
+    -p 127.0.0.1:9143:9143 \
+    -v "$PWD/xmxmon.yaml:/etc/xmxmon.yaml:ro" \
+    -v "$PWD/captures:/data/captures" \
+    --entrypoint /app/xmxmond.py \
+    xmxmon
+```
+
 Check it, watch it live, then wrap a benchmark with a tagged capture:
 
 ```sh
@@ -86,8 +102,9 @@ curl -s localhost:9143/captures                            # where the file land
 
 Between captures it idles at a coarse sampling period, so leaving it up costs
 very little. Edit `xmxmon.yaml` to change devices, periods, or to enable the
-web UI and Prometheus exporter — see [Daemon mode](#daemon-mode) below. Stop it
-with `docker compose down`.
+web UI and Prometheus exporter — see [Daemon mode](#daemon-mode) below, and
+restart the container to pick up changes. Stop it with `docker compose down`
+(or `docker rm -f xmxmon` if you started it with `docker run`).
 
 Note that while the daemon is running it owns the device's performance
 counters, so stop it before using the one-shot CLI on that same GPU.
