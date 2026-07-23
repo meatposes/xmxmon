@@ -187,8 +187,12 @@ first; the sampler then drops back to the idle period on its own.
 
 Live bars for XMX per precision, utilization, and bandwidth, with peak-hold markers.
 It's a plain HTTP client, so it works fine over ssh and doesn't need GPU access
-itself. Press `d` to expand the overhead detail (below), `q` to quit; start
-expanded with `--detailed`.
+itself. Press `d` for the overhead detail (below), `r` to add raw counters,
+`q` to quit; start expanded with `--detailed`.
+
+Detail renders as a second column beside the live bars and fits an 80×24
+terminal with two GPUs. Below 72 columns it stacks instead, and the metric
+grid reflows to whatever width is available.
 
 ### Overhead detail
 
