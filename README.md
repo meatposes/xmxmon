@@ -61,6 +61,37 @@ docker run --rm -v "$PWD:/data" --entrypoint /app/xmx-summary.py xmxmon /data/ru
 Only `--device /dev/dri` is needed — no privileged mode, no host PID namespace,
 no changes to the container running your workload.
 
+### Leave it running
+
+For anything beyond a one-off capture, run the daemon instead. It keeps
+samplers alive across reboots and lets you start and stop captures on demand,
+so you don't have to predict when to attach:
+
+```sh
+mkdir -p captures
+docker compose up -d          # starts, and comes back after a reboot
+```
+
+Check it, watch it live, then wrap a benchmark with a tagged capture:
+
+```sh
+curl -s localhost:9143/now                                 # is it alive?
+./xmxmon-tui.py http://localhost:9143                      # live terminal view
+
+curl -s -X POST localhost:9143/capture -d '{"name":"my-bench","device":0}'
+./run-my-benchmark.sh
+curl -s -X POST localhost:9143/capture/stop -d '{"device":0}'
+curl -s localhost:9143/captures                            # where the file landed
+```
+
+Between captures it idles at a coarse sampling period, so leaving it up costs
+very little. Edit `xmxmon.yaml` to change devices, periods, or to enable the
+web UI and Prometheus exporter — see [Daemon mode](#daemon-mode) below. Stop it
+with `docker compose down`.
+
+Note that while the daemon is running it owns the device's performance
+counters, so stop it before using the one-shot CLI on that same GPU.
+
 ## Quick start (host)
 
 ```sh
@@ -113,12 +144,8 @@ engine — reaching that counter requires *both* operands to be 2-bit.
 ## Daemon mode
 
 `xmxmond.py` keeps samplers running continuously and adds an HTTP API, so
-benchmark scripts can turn high-rate capture on and off around a run.
-
-```sh
-mkdir -p captures
-docker compose up -d
-```
+benchmark scripts can turn high-rate capture on and off around a run
+(`docker compose up -d`, as in [Leave it running](#leave-it-running) above).
 
 Published on `127.0.0.1:9143` only. Always available:
 
@@ -129,13 +156,9 @@ Published on `127.0.0.1:9143` only. Always available:
 | `POST /capture/stop` | `{"device":0}` — end early |
 | `GET /captures` | running and finished captures |
 
-Wrap a benchmark:
-
-```sh
-curl -s -X POST localhost:9143/capture -d '{"name":"my-bench","device":0}'
-./run-my-benchmark.sh
-curl -s -X POST localhost:9143/capture/stop -d '{"device":0}'
-```
+Omit `device` on either capture call to act on every configured device at once.
+A capture ends when its `duration_s` elapses or you stop it, whichever comes
+first; the sampler then drops back to the idle period on its own.
 
 ### Terminal UI
 
