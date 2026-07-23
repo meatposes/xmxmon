@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xmxmon</title>
+<style>
+  :root {
+    --surface: #1a1a19; --panel: #232322; --ink: #e8e6e3; --ink-2: #a8a5a0;
+    --ink-3: #6e6b66; --grid: #33322f;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--surface); color: var(--ink);
+         font: 14px/1.45 system-ui, sans-serif; padding: 16px; }
+  h1 { font-size: 18px; font-weight: 600; margin-bottom: 2px; }
+  .sub { color: var(--ink-2); font-size: 12px; margin-bottom: 14px; }
+  .device { background: var(--panel); border-radius: 8px; padding: 14px 16px;
+            margin-bottom: 16px; }
+  .devhead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+             margin-bottom: 10px; }
+  .devhead h2 { font-size: 15px; font-weight: 600; }
+  .cap { font-size: 12px; color: var(--ink-2); }
+  .cap.active { color: var(--s4); }
+  .tiles { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .tile { background: var(--surface); border-radius: 6px; padding: 8px 12px;
+          min-width: 110px; }
+  .tile .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .tile .l { font-size: 11px; color: var(--ink-2); }
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 14px; }
+  .chart h3 { font-size: 12px; font-weight: 600; color: var(--ink-2);
+              margin-bottom: 4px; }
+  canvas { width: 100%; height: 150px; display: block; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px;
+            color: var(--ink-2); margin-top: 4px; }
+  .legend span::before { content: ""; display: inline-block; width: 9px;
+    height: 9px; border-radius: 2px; margin-right: 4px; background: var(--c); }
+  .ctl { display: flex; gap: 8px; margin-top: 12px; align-items: center;
+         flex-wrap: wrap; }
+  .ctl input { background: var(--surface); border: 1px solid var(--grid);
+               color: var(--ink); border-radius: 5px; padding: 5px 8px; width: 130px; }
+  .ctl button { background: var(--s1); border: 0; color: #fff; border-radius: 5px;
+                padding: 6px 12px; cursor: pointer; font-weight: 600; }
+  .ctl button.stop { background: var(--s8); }
+  .tip { position: fixed; pointer-events: none; background: #000c;
+         border: 1px solid var(--grid); border-radius: 5px; padding: 6px 8px;
+         font-size: 11px; display: none; z-index: 9; white-space: nowrap; }
+</style>
+</head>
+<body>
+<h1>xmxmon</h1>
+<div class="sub">Intel Arc XMX / utilization observer — live via SSE</div>
+<div id="devices"></div>
+<div class="tip" id="tip"></div>
+<script>
+"use strict";
+const PAL = ["#3987e5","#d95926","#199e70","#c98500","#d55181","#008300","#9085e9","#e66767"];
+// Fixed series->slot assignment (never re-ordered at runtime):
+const CHARTS = [
+  { id:"xmx", title:"XMX instructions / s", kind:"rates", fmt:fmtSI,
+    series:[["XVE_INST_EXECUTED_XMX_INT2","INT2",0],
+            ["XVE_INST_EXECUTED_XMX_INT4","INT4",1],
+            ["XVE_INST_EXECUTED_XMX_INT8","INT8",2],
+            ["XVE_INST_EXECUTED_XMX_FP16","FP16",3],
+            ["XVE_INST_EXECUTED_XMX_BF16","BF16",4]] },
+  { id:"util", title:"Utilization %", kind:"gauges", fmt:v=>v.toFixed(0)+"%", max:100,
+    series:[["GPU_BUSY","GPU busy",0],["XVE_ACTIVE","XVE active",1],
+            ["XVE_THREADS_OCCUPANCY_ALL","Occupancy",2]] },
+  { id:"mem", title:"Memory bandwidth GB/s", kind:"rates", fmt:v=>v.toFixed(0),
+    scale:1e-9,
+    series:[["GPU_MEMORY_BYTE_READ","read",0],["GPU_MEMORY_BYTE_WRITE","write",1]] },
+];
+const WINDOW_S = 120, hist = {};   // dev -> [{t, chartId -> [v,...]}]
+function fmtSI(v){ if(v>=1e12)return (v/1e12).toFixed(1)+"T";
+  if(v>=1e9)return (v/1e9).toFixed(1)+"G"; if(v>=1e6)return (v/1e6).toFixed(1)+"M";
+  if(v>=1e3)return (v/1e3).toFixed(1)+"k"; return v.toFixed(0); }
+
+function ensureDevice(dev){
+  if(document.getElementById("dev"+dev)) return;
+  const el=document.createElement("div"); el.className="device"; el.id="dev"+dev;
+  el.innerHTML=`<div class="devhead"><h2>device ${dev}</h2>
+      <span class="cap" id="cap${dev}">idle</span></div>
+    <div class="tiles" id="tiles${dev}"></div>
+    <div class="charts">${CHARTS.map(c=>`
+      <div class="chart"><h3>${c.title}</h3>
+        <canvas id="cv-${dev}-${c.id}"></canvas>
+        <div class="legend">${c.series.map(s=>
+          `<span style="--c:${PAL[s[2]]}">${s[1]}</span>`).join("")}</div>
+      </div>`).join("")}</div>
+    <div class="ctl">
+      <input id="capname${dev}" placeholder="capture name">
+      <input id="capdur${dev}" placeholder="duration s" size="6">
+      <button onclick="startCap(${dev})">capture</button>
+      <button class="stop" onclick="stopCap(${dev})">stop</button>
+    </div>`;
+  document.getElementById("devices").appendChild(el);
+  hist[dev]=[];
+  for(const c of CHARTS){
+    const cv=document.getElementById(`cv-${dev}-${c.id}`);
+    cv.onmousemove=e=>hover(e,dev,c); cv.onmouseleave=()=>tip.style.display="none";
+  }
+}
+async function startCap(dev){
+  const name=document.getElementById("capname"+dev).value||"capture";
+  const dur=parseFloat(document.getElementById("capdur"+dev).value)||null;
+  await fetch("/capture",{method:"POST",body:JSON.stringify(
+    {device:dev,name,duration_s:dur})});
+}
+async function stopCap(dev){
+  await fetch("/capture/stop",{method:"POST",body:JSON.stringify({device:dev})});
+}
+
+function draw(dev){
+  const H=hist[dev]; if(!H.length) return;
+  const t1=H[H.length-1].t, t0=t1-WINDOW_S;
+  for(const c of CHARTS){
+    const cv=document.getElementById(`cv-${dev}-${c.id}`);
+    const w=cv.clientWidth, h=cv.clientHeight;
+    if(cv.width!==w*devicePixelRatio){cv.width=w*devicePixelRatio;cv.height=h*devicePixelRatio;}
+    const g=cv.getContext("2d"); g.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+    g.clearRect(0,0,w,h);
+    let max=c.max||0;
+    if(!c.max) for(const p of H) for(let i=0;i<c.series.length;i++)
+      max=Math.max(max,p[c.id][i]||0);
+    if(max<=0) max=1;
+    g.strokeStyle="#33322f"; g.lineWidth=1; g.beginPath();          // grid
+    for(let i=1;i<4;i++){const y=h*i/4; g.moveTo(0,y); g.lineTo(w,y);} g.stroke();
+    g.fillStyle="#6e6b66"; g.font="10px system-ui";
+    g.fillText(c.fmt(max*(c.scale||1)),4,10);
+    for(let i=0;i<c.series.length;i++){
+      g.strokeStyle=PAL[c.series[i][2]]; g.lineWidth=2; g.beginPath();
+      let started=false;
+      for(const p of H){
+        const x=(p.t-t0)/WINDOW_S*w, y=h-(p[c.id][i]||0)/max*(h-14)-2;
+        if(!started){g.moveTo(x,y);started=true;} else g.lineTo(x,y);
+      }
+      g.stroke();
+    }
+    cv._max=max; cv._t0=t0;
+  }
+}
+const tip=document.getElementById("tip");
+function hover(e,dev,c){
+  const H=hist[dev]; if(!H.length) return;
+  const cv=e.target, r=cv.getBoundingClientRect();
+  const t=cv._t0+(e.clientX-r.left)/r.width*WINDOW_S;
+  let best=H[0]; for(const p of H) if(Math.abs(p.t-t)<Math.abs(best.t-t)) best=p;
+  tip.innerHTML=c.series.map((s,i)=>
+    `<span style="color:${PAL[s[2]]}">●</span> ${s[1]}: ${c.fmt((best[c.id][i]||0)*(c.scale||1))}`
+  ).join("<br>");
+  tip.style.display="block"; tip.style.left=(e.clientX+14)+"px";
+  tip.style.top=(e.clientY+8)+"px";
+}
+
+function tiles(dev,snap){
+  const g=snap.gauges||{}, rt=snap.rates||{};
+  const xmxTop=Math.max(rt.XVE_INST_EXECUTED_XMX_INT8||0,
+    rt.XVE_INST_EXECUTED_XMX_FP16||0, rt.XVE_INST_EXECUTED_XMX_INT2||0,
+    rt.XVE_INST_EXECUTED_XMX_INT4||0, rt.XVE_INST_EXECUTED_XMX_BF16||0);
+  const items=[["GPU busy",(g.GPU_BUSY||0).toFixed(0)+"%"],
+    ["XVE active",(g.XVE_ACTIVE||0).toFixed(1)+"%"],
+    ["XMX peak",fmtSI(xmxTop)+"/s"],
+    ["Mem read",((rt.GPU_MEMORY_BYTE_READ||0)/1e9).toFixed(0)+" GB/s"],
+    ["Freq",(g.AvgGpuCoreFrequencyMHz||0).toFixed(0)+" MHz"]];
+  document.getElementById("tiles"+dev).innerHTML=items.map(([l,v])=>
+    `<div class="tile"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+}
+
+const es=new EventSource("/events");
+es.onmessage=ev=>{
+  const all=JSON.parse(ev.data), now=Date.now()/1000;
+  for(const [dev,snap] of Object.entries(all)){
+    ensureDevice(dev);
+    const point={t:now};
+    for(const c of CHARTS){
+      const src=snap[c.kind]||{};
+      point[c.id]=c.series.map(s=>(src[s[0]]||0)*(c.scale?1:1));
+    }
+    hist[dev].push(point);
+    while(hist[dev].length&&hist[dev][0].t<now-WINDOW_S) hist[dev].shift();
+    tiles(dev,snap);
+    const cap=document.getElementById("cap"+dev);
+    if(snap.capture){cap.textContent=`capturing "${snap.capture.name}" (${snap.capture.rows} rows)`;
+      cap.className="cap active";}
+    else {cap.textContent="idle";cap.className="cap";}
+    draw(dev);
+  }
+};
+</script>
+</body>
+</html>

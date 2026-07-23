@@ -1,0 +1,16 @@
+services:
+  xmxmon:
+    build: .
+    image: xmxmon
+    container_name: xmxmon
+    restart: unless-stopped
+    entrypoint: ["/app/xmxmond.py"]
+    devices:
+      - /dev/dri:/dev/dri
+    ports:
+      # Loopback only by default. Change to "9143:9143" to expose on the
+      # network, and set `listen: 0.0.0.0:9143` in xmxmon.yaml to match.
+      - "127.0.0.1:9143:9143"
+    volumes:
+      - ./xmxmon.yaml:/etc/xmxmon.yaml:ro
+      - ./captures:/data/captures

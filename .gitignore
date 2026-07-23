@@ -1,0 +1,4 @@
+xmxmon
+*.csv
+*.ndjson
+captures/

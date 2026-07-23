@@ -1,0 +1,28 @@
+# xmxmond configuration.
+# Mounted at /etc/xmxmon.yaml by the compose file; override the path with
+# XMXMOND_CONFIG when running on the host.
+
+# Level Zero GPU indices to sample. Run `xmxmon --list` to see yours.
+devices: [0]
+
+# Metric group. VectorEngineProfile carries the per-precision XMX counters
+# plus general utilization. Only ONE group can be active per device at a time
+# (hardware limit) — see `xmxmon --list` for the alternatives.
+group: VectorEngineProfile
+
+idle_period_ms: 500          # hardware sampling period while idling
+capture_period_ms: 100       # hardware sampling period during a capture
+read_ms: 250                 # how often the daemon drains the streamer
+window_s: 1.0                # aggregation window for rates and gauges
+
+# Bind address INSIDE the container. The compose file publishes this on the
+# host's loopback only (127.0.0.1:9143), so this does not expose the network.
+# Running on the host directly? Use 127.0.0.1:9143 here instead.
+listen: 0.0.0.0:9143
+capture_dir: /data/captures  # tagged capture files (ndjson) land here
+
+# Optional surfaces, both off by default.
+prometheus: false            # expose GET /metrics for scraping
+wui: false                   # expose the live web UI at GET /
+
+binary: /app/xmxmon          # path to the sampler (host use: ./xmxmon)

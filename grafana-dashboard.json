@@ -1,0 +1,154 @@
+{
+  "title": "xmxmon — Intel Arc XMX / GPU",
+  "uid": "xmxmon",
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": { "from": "now-30m", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "DS",
+        "label": "Prometheus",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "device",
+        "label": "GPU device",
+        "type": "query",
+        "datasource": { "uid": "${DS}" },
+        "query": "label_values(xmxmon_gauge, device)",
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" },
+        "refresh": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "XMX instructions/s by precision",
+      "type": "timeseries",
+      "datasource": { "uid": "${DS}" },
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 9 },
+      "description": "Nonzero here = the matrix engine is being fed. Mixed-precision DPAS (e.g. s8xu2) is counted under its wider operand.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "xmxmon_rate_per_s{metric=~\"XVE_INST_EXECUTED_XMX_.*\", device=~\"$device\"}",
+          "legendFormat": "dev{{device}} {{metric}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
+        }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom",
+                               "calcs": ["max", "mean"] } }
+    },
+    {
+      "title": "Utilization %",
+      "type": "timeseries",
+      "datasource": { "uid": "${DS}" },
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 9 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "xmxmon_gauge{metric=~\"GPU_BUSY|XVE_ACTIVE|XVE_THREADS_OCCUPANCY_ALL\", device=~\"$device\"}",
+          "legendFormat": "dev{{device}} {{metric}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
+        }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } }
+    },
+    {
+      "title": "Memory bandwidth",
+      "type": "timeseries",
+      "datasource": { "uid": "${DS}" },
+      "gridPos": { "x": 0, "y": 9, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "xmxmon_rate_per_s{metric=~\"GPU_MEMORY_BYTE_(READ|WRITE)\", device=~\"$device\"}",
+          "legendFormat": "dev{{device}} {{metric}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
+        }
+      }
+    },
+    {
+      "title": "ALU pipe instructions/s",
+      "type": "timeseries",
+      "datasource": { "uid": "${DS}" },
+      "gridPos": { "x": 12, "y": 9, "w": 12, "h": 8 },
+      "description": "Vector path. High ALU with zero XMX = the backend is not using the matrix engine for this phase.",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "xmxmon_rate_per_s{metric=~\"XVE_INST_EXECUTED_ALU[0-2]_ALL\", device=~\"$device\"}",
+          "legendFormat": "dev{{device}} {{metric}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
+        }
+      }
+    },
+    {
+      "title": "Capture active",
+      "type": "stat",
+      "datasource": { "uid": "${DS}" },
+      "gridPos": { "x": 0, "y": 17, "w": 6, "h": 4 },
+      "targets": [
+        { "refId": "A", "expr": "xmxmon_capturing{device=~\"$device\"}",
+          "legendFormat": "dev{{device}}" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            { "type": "value", "options": { "0": { "text": "idle", "index": 0 },
+                                            "1": { "text": "CAPTURING", "index": 1 } } }
+          ],
+          "thresholds": { "mode": "absolute",
+                          "steps": [ { "color": "text", "value": null },
+                                     { "color": "orange", "value": 1 } ] }
+        }
+      }
+    },
+    {
+      "title": "Everything currently scraped (last value)",
+      "type": "table",
+      "datasource": { "uid": "${DS}" },
+      "gridPos": { "x": 6, "y": 17, "w": 18, "h": 12 },
+      "description": "Full inventory of what xmxmon exports — one row per metric per device.",
+      "targets": [
+        { "refId": "A", "expr": "xmxmon_rate_per_s{device=~\"$device\"}",
+          "legendFormat": "", "instant": true, "format": "table" },
+        { "refId": "B", "expr": "xmxmon_gauge{device=~\"$device\"}",
+          "legendFormat": "", "instant": true, "format": "table" }
+      ],
+      "transformations": [
+        { "id": "merge", "options": {} },
+        { "id": "organize",
+          "options": { "excludeByName": { "Time": true, "job": true,
+                                          "instance": true, "__name__": true } } }
+      ]
+    }
+  ],
+  "schemaVersion": 39
+}
