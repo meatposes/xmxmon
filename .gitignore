@@ -3,6 +3,8 @@ xmxmon
 *.ndjson
 captures/
 graphify-output/
+__pycache__/
+*.pyc
 
 # Local config — copy from the .example files, never tracked.
 xmxmon.yaml
