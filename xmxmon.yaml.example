@@ -16,6 +16,13 @@ devices: [0]
 # (hardware limit) — see `xmxmon --list` for the alternatives.
 group: VectorEngineProfile
 
+# Optional per-device override. Because only one group can be active per
+# device, this is how you watch two different aspects at once on a multi-GPU
+# box — e.g. XMX and operand-prep counters on one card, stall reasons on
+# another. Keys are device indices.
+# groups:
+#   1: VectorEngineStalls
+
 idle_period_ms: 500          # hardware sampling period while idling
 capture_period_ms: 100       # hardware sampling period during a capture
 read_ms: 250                 # how often the daemon drains the streamer

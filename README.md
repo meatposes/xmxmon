@@ -187,7 +187,29 @@ first; the sampler then drops back to the idle period on its own.
 
 Live bars for XMX per precision, utilization, and bandwidth, with peak-hold markers.
 It's a plain HTTP client, so it works fine over ssh and doesn't need GPU access
-itself. `q` quits.
+itself. Press `d` to expand the overhead detail (below), `q` to quit; start
+expanded with `--detailed`.
+
+### Overhead detail
+
+Raw counters say what happened; the detail view says how much of it was useful
+work. Available in the TUI (`d`), the web UI ("show detail"), and
+`xmx-summary.py --detailed`, all computing the same ratios:
+
+| Metric | Reads as |
+|---|---|
+| `prep work / XMX` | operand preparation (bit manipulation, integer and float ALU, extended math) per unit of matrix work. **A dense fp16 matmul measures ~0.03** — treat that as the floor. Ratios in the single digits mean most instructions are unpacking and scaling, not multiplying. |
+| `XMX per VRAM byte` | arithmetic intensity on the matrix engine. Low means memory-fed, not compute-fed. |
+| `L3 hit rate` | low values mean prepared operands are spilling to VRAM instead of being reused in cache. |
+| `memory ops / XMX` | load/store pressure per unit of matrix work. |
+| `barrier share` | synchronization cost as a share of issued instructions. |
+| `kernel dispatches` | launch overhead; high rates with little work per launch mean dispatch-bound. |
+| `divergent issue`, `icache miss`, `multi-pipe active` | branch divergence, oversized/spilling kernels, and instruction-level parallelism. |
+
+When the active group is `VectorEngineStalls`, the same view lists stall reasons
+(`stall: sbid`, `stall: sendwr`, …) instead — *why* the engine was idle. Raw
+per-second counters appear underneath the ratios so any number can be checked
+against its inputs.
 
 ### Optional: web UI and Prometheus
 
@@ -230,6 +252,10 @@ cp docker-compose.override.yml.example docker-compose.override.yml   # optional
 bind address, capture directory, and the two feature flags. See
 `xmxmon.yaml.example` for the annotated list. On the host, point at any copy with
 `XMXMOND_CONFIG=/path/to.yaml`.
+
+Because only one metric group can be active per device, a `groups:` map assigns
+different groups to different cards — letting one GPU report XMX and operand-prep
+counters while another reports stall reasons.
 
 `docker-compose.override.yml` holds machine-specific deployment changes — port
 exposure, device pinning, capture volume. Compose merges it automatically when

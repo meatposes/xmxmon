@@ -22,7 +22,8 @@ need it, it almost certainly belongs somewhere else.
 | File | Role |
 |---|---|
 | `xmxmon.cpp` | The sampler. Single-file C++, links only `libze_loader`. Emits CSV or ndjson. Everything else is downstream of this. |
-| `xmx-summary.py` | Reads a CSV, prints an XMX verdict plus utilization stats. |
+| `xmx-summary.py` | Reads a CSV, prints an XMX verdict plus utilization stats; `--detailed` adds the overhead section. |
+| `xmxderive.py` | **Shared** derived-metric math (overhead ratios, raw grouping). The daemon, TUI, web UI, and summary all go through it — do not reimplement these ratios anywhere else. |
 | `xmxmond.py` | Daemon: one `xmxmon --json` subprocess per device, aggregates into rates/gauges, serves HTTP. |
 | `xmxmon-tui.py` | Terminal UI. Thin HTTP client on the daemon — no GPU access of its own. |
 | `wui.html` | Web UI, served by the daemon when enabled. Vanilla JS, SSE, canvas. No build step, no dependencies. |
@@ -128,6 +129,15 @@ docs, UI copy, or analysis you write.
   `XMX_INT2` requires *both* operands at 2-bit, which essentially never happens in
   real workloads. A zero INT2 counter does not mean 2-bit data never reached the
   matrix engine.
+- **Derived ratios need a reference, not a spec.** `prep work / XMX` is only
+  meaningful against a measured floor — `xmxderive.PREP_REFERENCE` (~0.034) came
+  from a dense fp16 matmul, not from documentation. If you add a ratio, measure
+  its floor on a known workload and say so; never invent a "good" threshold.
+- **Percentages average, counters sum.** When aggregating a capture offline,
+  percentage metrics must be averaged and counters converted to per-second, or
+  ratios mixing the two are silently wrong. `xmx-summary.py` normalizes exactly
+  as the daemon does so live and offline numbers agree — verify that they still
+  match after touching either.
 - **Nothing here knows a theoretical maximum.** Every "peak"/"max" is empirical:
   WUI charts auto-scale to the rolling window, the TUI peak-holds since launch,
   `xmx-summary.py` reports the largest sample. A full-looking bar means "busiest

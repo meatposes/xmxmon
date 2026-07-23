@@ -32,10 +32,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import yaml
 
+import xmxderive
+
 DEFAULTS = {
     "binary": "/app/xmxmon",
     "devices": [0],
     "group": "VectorEngineProfile",
+    # Optional per-device override, e.g. {1: VectorEngineStalls}. Only one
+    # metric group can be active per device, so sampling stalls on one card
+    # while another samples XMX is the way to see both at once.
+    "groups": {},
     "idle_period_ms": 500,
     "capture_period_ms": 100,
     "read_ms": 250,
@@ -64,6 +70,9 @@ class Sampler:
     def __init__(self, cfg, device):
         self.cfg = cfg
         self.device = device
+        groups = cfg.get("groups") or {}
+        # YAML keys may arrive as int or str depending on how they were written.
+        self.group = groups.get(device, groups.get(str(device), cfg["group"]))
         self.proc = None
         self.window = deque()          # (wall_t, metrics dict)
         self.lock = threading.Lock()
@@ -74,7 +83,7 @@ class Sampler:
 
     def _spawn(self):
         cmd = [self.cfg["binary"], "--device", str(self.device),
-               "--group", self.cfg["group"],
+               "--group", self.group,
                "--period-ms", str(self._want_period),
                "--read-ms", str(self.cfg["read_ms"]), "--json"]
         self.period_ms = self._want_period
@@ -118,10 +127,12 @@ class Sampler:
             cap = self.capture and {"name": self.capture["name"],
                                     "rows": self.capture["rows"]}
         if not rows:
-            return {"device": self.device, "n": 0, "capture": cap}
+            return {"device": self.device, "n": 0, "capture": cap,
+                    "group": self.group}
         secs = self.cfg["window_s"]
         out = {"device": self.device, "n": len(rows), "capture": cap,
-               "period_ms": self.period_ms, "rates": {}, "gauges": {}}
+               "group": self.group, "period_ms": self.period_ms,
+               "rates": {}, "gauges": {}}
         keys = rows[-1].keys()
         for k in keys:
             if k in SKIP:
@@ -131,6 +142,15 @@ class Sampler:
                 out["gauges"][k] = sum(vs) / len(vs)
             else:
                 out["rates"][k] = sum(vs) / secs
+        # Ratios need rates and gauges together; percentages live in gauges.
+        merged = dict(out["rates"])
+        merged.update(out["gauges"])
+        out["derived"] = [
+            {"label": lbl, "value": (None if val != val or val in
+                                     (float("inf"), float("-inf")) else val),
+             "unit": unit, "note": note}
+            for lbl, val, unit, note in xmxderive.derive(merged)
+        ]
         return out
 
     # -- capture control ---------------------------------------------------

@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """xmxmon-tui — terminal live view; thin client on a running xmxmond.
 
-usage: xmxmon-tui.py [http://host:9143]
-Works over ssh (pure ANSI, 2 Hz refresh). q or Ctrl-C quits.
+usage: xmxmon-tui.py [--detailed] [http://host:9143]
+Works over ssh (pure ANSI, 2 Hz refresh). d toggles overhead detail, q quits.
 """
 import json
 import select
@@ -14,7 +14,12 @@ import time
 import tty
 import urllib.request
 
-BASE = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:9143"
+import xmxderive
+
+ARGS = [a for a in sys.argv[1:]]
+DETAILED = "--detailed" in ARGS or "-d" in ARGS
+POS = [a for a in ARGS if not a.startswith("-")]
+BASE = POS[0] if POS else "http://localhost:9143"
 XMX = [("INT2", "XVE_INST_EXECUTED_XMX_INT2"), ("INT4", "XVE_INST_EXECUTED_XMX_INT4"),
        ("INT8", "XVE_INST_EXECUTED_XMX_INT8"), ("FP16", "XVE_INST_EXECUTED_XMX_FP16"),
        ("BF16", "XVE_INST_EXECUTED_XMX_BF16")]
@@ -33,7 +38,22 @@ def bar(pct, width=30, peak=None):
         b = b[:p] + "|" + b[p + 1:]
     return b
 
+def fmt(value, unit):
+    if value is None:
+        return "     —"
+    if unit == "%":
+        return f"{value:6.1f}%"
+    if unit == "x":
+        return f"{value:6.2f}x"
+    if unit == "/s":
+        return f"{si(value)}/s"
+    if abs(value) < 100:
+        return f"{value:6.3f} "
+    return f"{si(value)} "
+
+
 def main():
+    detailed = DETAILED
     peaks = {}
     # Raw-mode key polling only works on a real terminal; when piped or run
     # under nohup, fall back to plain refreshes and let SIGINT do the quitting.
@@ -51,14 +71,16 @@ def main():
                 print(f"\x1b[H\x1b[2Jxmxmond unreachable at {BASE}: {e}")
                 time.sleep(2)
                 continue
-            out = [f"\x1b[H\x1b[2Jxmxmon TUI — {BASE}   {time.strftime('%H:%M:%S')}   (q quits)"]
+            hint = "[d] hide detail  [q] quit" if detailed else "[d] detail  [q] quit"
+            out = [f"\x1b[H\x1b[2Jxmxmon TUI — {BASE}   "
+                   f"{time.strftime('%H:%M:%S')}   {hint}"]
             for dev, s in sorted(snap.items()):
                 g, r = s.get("gauges", {}), s.get("rates", {})
                 cap = s.get("capture")
                 out.append("")
                 out.append(f"== device {dev}  "
                            f"{'CAPTURING ' + cap['name'] + ' (' + str(cap['rows']) + ' rows)' if cap else 'idle sampling'}"
-                           f"  period {s.get('period_ms','?')}ms ==")
+                           f"  {s.get('group','?')}  period {s.get('period_ms','?')}ms ==")
                 for label, key, unit in (("GPU busy", "GPU_BUSY", "%"),
                                          ("XVE active", "XVE_ACTIVE", "%"),
                                          ("Occupancy", "XVE_THREADS_OCCUPANCY_ALL", "%")):
@@ -75,14 +97,40 @@ def main():
                 rd, wr = r.get("GPU_MEMORY_BYTE_READ", 0) / 1e9, r.get("GPU_MEMORY_BYTE_WRITE", 0) / 1e9
                 out.append(f"  mem R/W     {rd:6.1f} / {wr:5.1f} GB/s"
                            f"    freq {g.get('AvgGpuCoreFrequencyMHz', 0):4.0f} MHz")
+
+                if not detailed:
+                    continue
+                derived = s.get("derived") or []
+                if derived:
+                    out.append("  ── overhead ──────────────────────────────")
+                    for d in derived:
+                        note = f"   {d['note']}" if d.get("note") else ""
+                        out.append(f"  {d['label']:22s} "
+                                   f"{fmt(d['value'], d['unit'])}{note}")
+                merged = dict(r)
+                merged.update(g)
+                rows = xmxderive.raw_rows(merged)
+                if rows:
+                    out.append("  ── raw counters (per second) ─────────────")
+                    for group, items in rows:
+                        out.append(f"  {group}:")
+                        for k, val in items:
+                            short = k.replace("XVE_INST_EXECUTED_", "") \
+                                     .replace("COMMAND_PARSER_COMPUTE_ENGINE_", "")
+                            out.append(f"    {short:34s} {si(val)}/s")
             print("\n".join(out), flush=True)
             if not interactive:
                 time.sleep(0.5)
                 continue
             t0 = time.time()
             while time.time() - t0 < 0.5:
-                if select.select([sys.stdin], [], [], 0.1)[0] and sys.stdin.read(1) == "q":
-                    return
+                if select.select([sys.stdin], [], [], 0.1)[0]:
+                    ch = sys.stdin.read(1)
+                    if ch == "q":
+                        return
+                    if ch == "d":
+                        detailed = not detailed
+                        break
     except KeyboardInterrupt:
         pass
     finally:

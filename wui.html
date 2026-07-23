@@ -37,8 +37,26 @@
             color: var(--ink-2); margin-top: 4px; }
   .legend span::before { content: ""; display: inline-block; width: 9px;
     height: 9px; border-radius: 2px; margin-right: 4px; background: var(--c); }
+  .detail { margin-top: 12px; }
+  .detail h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+               color: var(--ink-3); margin-bottom: 6px; }
+  .drow { display: flex; align-items: baseline; gap: 8px; padding: 3px 0;
+          border-bottom: 1px solid var(--grid); font-size: 12px; }
+  .drow .k { flex: 0 0 190px; color: var(--ink-2); }
+  .drow .v { font-variant-numeric: tabular-nums; font-weight: 600;
+             flex: 0 0 90px; text-align: right; }
+  .drow .n { color: var(--ink-3); font-size: 11px; }
+  .raw { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+         gap: 4px 18px; margin-top: 8px; font-size: 11px; }
+  .raw div { display: flex; justify-content: space-between; gap: 8px;
+             color: var(--ink-2); }
+  .raw b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .rawgrp { grid-column: 1 / -1; color: var(--ink-3); text-transform: uppercase;
+            font-size: 10px; letter-spacing: .04em; margin-top: 6px; }
   .ctl { display: flex; gap: 8px; margin-top: 12px; align-items: center;
          flex-wrap: wrap; }
+  .ctl button.ghost { background: transparent; color: var(--ink-2);
+                      border: 1px solid var(--grid); }
   .ctl input { background: var(--surface); border: 1px solid var(--grid);
                color: var(--ink); border-radius: 5px; padding: 5px 8px; width: 130px; }
   .ctl button { background: var(--s1); border: 0; color: #fff; border-radius: 5px;
@@ -89,11 +107,13 @@ function ensureDevice(dev){
         <div class="legend">${c.series.map(s=>
           `<span style="--c:${PAL[s[2]]}">${s[1]}</span>`).join("")}</div>
       </div>`).join("")}</div>
+    <div class="detail" id="detail${dev}" hidden></div>
     <div class="ctl">
       <input id="capname${dev}" placeholder="capture name">
       <input id="capdur${dev}" placeholder="duration s" size="6">
       <button onclick="startCap(${dev})">capture</button>
       <button class="stop" onclick="stopCap(${dev})">stop</button>
+      <button class="ghost" id="dbtn${dev}" onclick="toggleDetail(${dev})">show detail</button>
     </div>`;
   document.getElementById("devices").appendChild(el);
   hist[dev]=[];
@@ -101,6 +121,53 @@ function ensureDevice(dev){
     const cv=document.getElementById(`cv-${dev}-${c.id}`);
     cv.onmousemove=e=>hover(e,dev,c); cv.onmouseleave=()=>tip.style.display="none";
   }
+}
+const detailOn = {};
+function toggleDetail(dev){
+  detailOn[dev] = !detailOn[dev];
+  document.getElementById("detail"+dev).hidden = !detailOn[dev];
+  document.getElementById("dbtn"+dev).textContent =
+    detailOn[dev] ? "hide detail" : "show detail";
+}
+const RAW_GROUPS = [
+  ["operand prep", ["XVE_INST_EXECUTED_BITCONV","XVE_INST_EXECUTED_INT16",
+    "XVE_INST_EXECUTED_INT32","XVE_INST_EXECUTED_FP16","XVE_INST_EXECUTED_FP32",
+    "XVE_INST_EXECUTED_MATH"]],
+  ["matrix engine", ["XVE_INST_EXECUTED_XMX_INT2","XVE_INST_EXECUTED_XMX_INT4",
+    "XVE_INST_EXECUTED_XMX_INT8","XVE_INST_EXECUTED_XMX_FP16",
+    "XVE_INST_EXECUTED_XMX_BF16"]],
+  ["memory", ["GPU_MEMORY_BYTE_READ","GPU_MEMORY_BYTE_WRITE","L3_HIT","L3_MISS",
+    "TLB_MISS"]],
+  ["dispatch", ["COMMAND_PARSER_COMPUTE_ENGINE_DISPATCH_KERNEL_COUNT",
+    "GPGPU_THREADGROUP_COUNT","XVE_INST_EXECUTED_BARRIER",
+    "XVE_INST_EXECUTED_CONTROL_ALL"]],
+];
+function fmtD(v,u){
+  if(v===null||v===undefined) return "—";
+  if(u==="%") return v.toFixed(1)+"%";
+  if(u==="x") return v.toFixed(2)+"x";
+  if(u==="/s") return fmtSI(v)+"/s";
+  return Math.abs(v)<100 ? v.toFixed(3) : fmtSI(v);
+}
+function renderDetail(dev,snap){
+  if(!detailOn[dev]) return;
+  const el=document.getElementById("detail"+dev);
+  const d=snap.derived||[];
+  let h = d.length ? `<h4>Overhead</h4>` + d.map(x=>
+      `<div class="drow"><span class="k">${x.label}</span>
+       <span class="v">${fmtD(x.value,x.unit)}</span>
+       <span class="n">${x.note||""}</span></div>`).join("")
+    : `<h4>Overhead</h4><div class="n">no derived metrics for this metric group</div>`;
+  const src={...(snap.rates||{}),...(snap.gauges||{})};
+  let raw="";
+  for(const [g,keys] of RAW_GROUPS){
+    const present=keys.filter(k=>k in src);
+    if(!present.length) continue;
+    raw+=`<div class="rawgrp">${g}</div>`+present.map(k=>
+      `<div><span>${k.replace("XVE_INST_EXECUTED_","").replace("COMMAND_PARSER_COMPUTE_ENGINE_","")}</span><b>${fmtSI(src[k])}/s</b></div>`).join("");
+  }
+  if(raw) h+=`<h4 style="margin-top:12px">Raw counters (per second)</h4><div class="raw">${raw}</div>`;
+  el.innerHTML=h;
 }
 async function startCap(dev){
   const name=document.getElementById("capname"+dev).value||"capture";
@@ -181,6 +248,7 @@ es.onmessage=ev=>{
     hist[dev].push(point);
     while(hist[dev].length&&hist[dev][0].t<now-WINDOW_S) hist[dev].shift();
     tiles(dev,snap);
+    renderDetail(dev,snap);
     const cap=document.getElementById("cap"+dev);
     if(snap.capture){cap.textContent=`capturing "${snap.capture.name}" (${snap.capture.rows} rows)`;
       cap.className="cap active";}

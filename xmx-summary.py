@@ -1,20 +1,85 @@
 #!/usr/bin/env python3
 # Copyright 2026 the xmxmon authors
 # SPDX-License-Identifier: Apache-2.0
-"""Summarize an xmxmon CSV: XMX verdict first, then key utilization metrics."""
+"""Summarize an xmxmon CSV: XMX verdict first, then key utilization metrics.
+
+With --detailed, adds derived overhead ratios (operand-prep cost, arithmetic
+intensity, cache and dispatch behaviour) and the raw counters behind them.
+"""
 import csv
 import sys
+
+import xmxderive
 
 XMX = ["XVE_INST_EXECUTED_XMX_INT2", "XVE_INST_EXECUTED_XMX_INT4",
        "XVE_INST_EXECUTED_XMX_INT8", "XVE_INST_EXECUTED_XMX_FP16",
        "XVE_INST_EXECUTED_XMX_BF16"]
+PERCENT_METRICS = {"GPU_BUSY", "XVE_ACTIVE", "L3_STALL", "L3_BUSY",
+                   "L3_INPUT_AVAILABLE", "L3_OUTPUT_READY", "L3_SUPERQ_FULL",
+                   "XVE_MULTIPLE_PIPE_ACTIVE", "XVE_THREADS_OCCUPANCY_ALL",
+                   "XVE_PIPE_ALU0_AND_ALU1_ACTIVE",
+                   "XVE_PIPE_ALU0_AND_ALU2_ACTIVE",
+                   "GPU_MEMORY_REQUEST_QUEUE_FULL", "AvgGpuCoreFrequencyMHz",
+                   "COMMAND_PARSER_COMPUTE_ENGINE_BUSY",
+                   "COMMAND_PARSER_RENDER_ENGINE_BUSY"}
 KEY = ["GPU_BUSY", "XVE_ACTIVE", "XVE_STALL", "XVE_THREADS_OCCUPANCY_ALL",
        "XVE_INST_EXECUTED_ALU0_ALL", "XVE_INST_EXECUTED_ALU1_ALL",
        "XVE_INST_EXECUTED_ALU2_ALL", "XVE_INST_EXECUTED_SEND_ALL",
        "GPU_MEMORY_BYTE_READ", "GPU_MEMORY_BYTE_WRITE",
        "L3_HIT", "L3_MISS", "AvgGpuCoreFrequencyMHz"]
 
-def main(path):
+def si(v):
+    for t, s in ((1e12, "T"), (1e9, "G"), (1e6, "M"), (1e3, "k")):
+        if abs(v) >= t:
+            return f"{v/t:10.3f}{s}"
+    return f"{v:10.3f} "
+
+
+def fmt(value, unit):
+    if value is None or value != value:
+        return "         —"
+    if value in (float("inf"), float("-inf")):
+        return "       n/a"
+    if unit == "%":
+        return f"{value:10.1f}%"
+    if unit == "x":
+        return f"{value:10.3f}x"
+    if unit == "/s":
+        return si(value)
+    return f"{value:10.4g} "
+
+
+def detailed_section(busy, elapsed_s):
+    """Derived overhead metrics over the busy portion of a capture."""
+    cols = busy[0].keys()
+    totals = {c: sum(float(r.get(c) or 0) for r in busy)
+              for c in cols if c != "t_s"}
+    raw_totals = dict(totals)
+    # Normalize the same way the daemon does — percentages averaged, counters
+    # converted to per-second — so derived values mean the same thing whether
+    # they came from a live snapshot or an offline capture.
+    for c in list(totals):
+        if c.startswith("XVE_STALL_") or c in PERCENT_METRICS:
+            totals[c] = totals[c] / len(busy)
+        else:
+            totals[c] = totals[c] / elapsed_s
+
+    print("\n--- overhead (derived) ---")
+    derived = xmxderive.derive(totals)
+    if not derived:
+        print("no derived metrics available for this metric group")
+    for label, value, unit, note in derived:
+        suffix = f"   {note}" if note else ""
+        print(f"{label:26s} {fmt(value, unit)}{suffix}")
+
+    print(f"\n--- raw counters (total over {elapsed_s:.1f}s busy; rate in parens) ---")
+    for group, items in xmxderive.raw_rows(raw_totals):
+        print(f"  {group}:")
+        for k, val in items:
+            print(f"    {k:52s} {si(val)}  ({si(val / elapsed_s)}/s)")
+
+
+def main(path, detailed=False):
     rows = list(csv.DictReader(open(path)))
     if not rows:
         print("empty capture"); return 1
@@ -49,9 +114,19 @@ def main(path):
             continue
         total, avg, peak = stats(c)
         print(f"{c:36s} avg {avg:12.4g}  peak {peak:12.4g}")
+
+    if detailed:
+        ts = [float(r["t_s"]) for r in busy]
+        detailed_section(busy, max(ts) - min(ts) or 1.0)
+    else:
+        print("\n(run with --detailed for operand-prep cost, cache and "
+              "dispatch overhead)")
     return 0
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("usage: xmx-summary.py capture.csv"); sys.exit(1)
-    sys.exit(main(sys.argv[1]))
+    args = [a for a in sys.argv[1:]]
+    want_detail = "--detailed" in args
+    paths = [a for a in args if not a.startswith("-")]
+    if len(paths) != 1:
+        print("usage: xmx-summary.py [--detailed] capture.csv"); sys.exit(1)
+    sys.exit(main(paths[0], want_detail))
