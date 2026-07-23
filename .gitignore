@@ -2,3 +2,4 @@ xmxmon
 *.csv
 *.ndjson
 captures/
+graphify-output/
