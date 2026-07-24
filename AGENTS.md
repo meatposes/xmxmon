@@ -135,9 +135,15 @@ docs, UI copy, or analysis you write.
   its floor on a known workload and say so; never invent a "good" threshold.
 - **Percentages average, counters sum.** When aggregating a capture offline,
   percentage metrics must be averaged and counters converted to per-second, or
-  ratios mixing the two are silently wrong. `xmx-summary.py` normalizes exactly
-  as the daemon does so live and offline numbers agree — verify that they still
-  match after touching either.
+  ratios mixing the two are silently wrong. The canonical set is
+  `xmxderive.is_percent()`; the daemon and `xmx-summary.py` both use it so live
+  and offline numbers agree — verify they still match after touching either. A
+  percentage metric missing from that set gets divided by time and reads as a
+  huge nonsense number (this bug shipped once for `L3_STALL`).
+- **Derived ratios are exported too.** `/metrics` emits `xmxmon_derived` from the
+  same `xmxderive.derive()` output the TUI uses, so Grafana graphs identical
+  numbers. If you add a derived metric, it appears in Prometheus automatically
+  via the `_slug()` of its label — keep labels stable or you rename the series.
 - **Nothing here knows a theoretical maximum.** Every "peak"/"max" is empirical:
   WUI charts auto-scale to the rolling window, the TUI peak-holds since launch,
   `xmx-summary.py` reports the largest sample. A full-looking bar means "busiest

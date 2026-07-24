@@ -29,6 +29,30 @@ PREP = ["XVE_INST_EXECUTED_BITCONV", "XVE_INST_EXECUTED_INT16",
 # not as a hardware specification.
 PREP_REFERENCE = 0.034
 
+# Metrics that are already levels (percentages, frequencies) and must be
+# AVERAGED over a window, never summed as per-second counters. The daemon and
+# the offline summary both consume this so their aggregation agrees. Any
+# metric name ending in a stall/active percentage also matches by prefix in
+# the consumers; this set covers the rest.
+PERCENT = {
+    "GPU_BUSY", "XVE_ACTIVE", "XVE_STALL", "XVE_THREADS_OCCUPANCY_ALL",
+    "XVE_MULTIPLE_PIPE_ACTIVE", "XVE_PIPE_ALU0_AND_ALU1_ACTIVE",
+    "XVE_PIPE_ALU0_AND_ALU2_ACTIVE",
+    "L3_BUSY", "L3_STALL", "L3_INPUT_AVAILABLE", "L3_OUTPUT_READY",
+    "L3_SUPERQ_FULL", "GPU_MEMORY_REQUEST_QUEUE_FULL",
+    "COMMAND_PARSER_COMPUTE_ENGINE_BUSY", "COMMAND_PARSER_RENDER_ENGINE_BUSY",
+    "AvgGpuCoreFrequencyMHz", "CoreFrequencyMHz", "ResultUncertainty",
+    "XVE_INST_EXECUTED_ALU0_ALL_UTILIZATION",
+    "XVE_INST_EXECUTED_ALU1_ALL_UTILIZATION",
+    "XVE_INST_EXECUTED_ALU2_ALL_UTILIZATION",
+}
+
+
+def is_percent(metric):
+    """True if a metric is a level (averaged), not a per-second counter."""
+    return metric in PERCENT or metric.startswith("XVE_STALL_") \
+        or metric.endswith("_UTILIZATION")
+
 
 def _has(v, keys):
     return any(k in v for k in keys)
@@ -121,8 +145,12 @@ def derive(v):
 RAW_GROUPS = [
     ("operand prep", PREP),
     ("matrix engine", XMX),
-    ("memory", ["GPU_MEMORY_BYTE_READ", "GPU_MEMORY_BYTE_WRITE",
-                "L3_HIT", "L3_MISS", "TLB_MISS"]),
+    ("vector pipes", ["XVE_INST_EXECUTED_ALU0_ALL", "XVE_INST_EXECUTED_ALU1_ALL",
+                      "XVE_INST_EXECUTED_ALU2_ALL", "XVE_INST_EXECUTED_SEND_ALL",
+                      "XVE_INST_ISSUED_ALL"]),
+    ("memory", ["GPU_MEMORY_BYTE_READ", "GPU_MEMORY_BYTE_WRITE", "TLB_MISS"]),
+    ("cache", ["L3_HIT", "L3_MISS", "L3_READ", "L3_WRITE",
+               "ICACHE_HIT", "ICACHE_MISS"]),
     ("dispatch", ["COMMAND_PARSER_COMPUTE_ENGINE_DISPATCH_KERNEL_COUNT",
                   "GPGPU_THREADGROUP_COUNT", "XVE_INST_EXECUTED_BARRIER",
                   "XVE_INST_EXECUTED_CONTROL_ALL"]),

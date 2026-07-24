@@ -4,7 +4,8 @@
   "timezone": "browser",
   "refresh": "5s",
   "schemaVersion": 39,
-  "time": { "from": "now-30m", "to": "now" },
+  "graphTooltip": 1,
+  "time": { "from": "now-15m", "to": "now" },
   "templating": {
     "list": [
       {
@@ -33,133 +34,215 @@
     ]
   },
   "panels": [
+    { "type": "row", "title": "At a glance", "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 }, "collapsed": false },
+
+    {
+      "title": "GPU busy",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${DS}" },
+      "gridPos": { "x": 0, "y": 1, "w": 6, "h": 4 },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_gauge{metric=\"GPU_BUSY\", device=~\"$device\"}", "legendFormat": "dev{{device}}" } ],
+      "options": { "graphMode": "area", "colorMode": "value", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100,
+        "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null }, { "color": "green", "value": 40 }, { "color": "orange", "value": 90 } ] } } }
+    },
+    {
+      "title": "XMX ops/s (all precisions)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${DS}" },
+      "gridPos": { "x": 6, "y": 1, "w": 6, "h": 4 },
+      "description": "Total matrix-engine instruction rate. Zero here means the workload is on the vector path, not the matrix engine.",
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "sum by (device) (xmxmon_rate_per_s{metric=~\"XVE_INST_EXECUTED_XMX_.*\", device=~\"$device\"})", "legendFormat": "dev{{device}}" } ],
+      "options": { "graphMode": "area", "colorMode": "value", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "green" } } }
+    },
+    {
+      "title": "Memory bandwidth",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${DS}" },
+      "gridPos": { "x": 12, "y": 1, "w": 6, "h": 4 },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "sum by (device) (xmxmon_rate_per_s{metric=~\"GPU_MEMORY_BYTE_(READ|WRITE)\", device=~\"$device\"})", "legendFormat": "dev{{device}}" } ],
+      "options": { "graphMode": "area", "colorMode": "value", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "Bps", "color": { "mode": "fixed", "fixedColor": "blue" } } }
+    },
+    {
+      "title": "Operand-prep tax (prep ÷ XMX)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${DS}" },
+      "gridPos": { "x": 18, "y": 1, "w": 6, "h": 4 },
+      "description": "Preparation instructions per unit of matrix work. ~0.03 is a dense fp16 matmul (no prep). Single digits mean most work is unpacking/scaling, not multiplying.",
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_derived{metric=\"prep_work_per_xmx\", device=~\"$device\"}", "legendFormat": "dev{{device}}" } ],
+      "options": { "graphMode": "area", "colorMode": "value", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 2,
+        "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "orange", "value": 2 }, { "color": "red", "value": 5 } ] } } }
+    },
+
+    { "type": "row", "title": "Matrix engine & conversion overhead", "gridPos": { "x": 0, "y": 5, "w": 24, "h": 1 }, "collapsed": false },
+
     {
       "title": "XMX instructions/s by precision",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "${DS}" },
-      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 9 },
-      "description": "Nonzero = the matrix engine is being fed. Mixed-precision DPAS (e.g. s8xu2) counts under its wider operand, so 2-bit weights appear under INT8.",
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS}" },
-          "expr": "xmxmon_rate_per_s{metric=~\"XVE_INST_EXECUTED_XMX_.*\", device=~\"$device\"}",
-          "legendFormat": "dev{{device}} {{metric}}"
-        }
-      ],
+      "gridPos": { "x": 0, "y": 6, "w": 12, "h": 9 },
+      "description": "Stacked so the precision mix and any spike are obvious. Mixed-precision DPAS (e.g. s8×u2) counts under its wider operand, so 2-bit weights show as INT8.",
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_rate_per_s{metric=~\"XVE_INST_EXECUTED_XMX_.*\", device=~\"$device\"}", "legendFormat": "dev{{device}} {{metric}}" } ],
       "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
-        },
-        "overrides": []
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 35, "stacking": { "mode": "normal", "group": "A" }, "showPoints": "never", "lineInterpolation": "smooth" } },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*INT8.*" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#199e70" } } ] },
+          { "matcher": { "id": "byRegexp", "options": ".*FP16.*" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#c98500" } } ] },
+          { "matcher": { "id": "byRegexp", "options": ".*BF16.*" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#d55181" } } ] },
+          { "matcher": { "id": "byRegexp", "options": ".*INT2.*" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } } ] },
+          { "matcher": { "id": "byRegexp", "options": ".*INT4.*" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#9085e9" } } ] }
+        ]
       },
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["max", "mean"] }, "tooltip": { "mode": "multi" } }
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["max", "mean"] }, "tooltip": { "mode": "multi", "sort": "desc" } }
     },
     {
-      "title": "Utilization %",
+      "title": "Operand-prep tax over time (prep ÷ XMX)",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "${DS}" },
-      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 9 },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS}" },
-          "expr": "xmxmon_gauge{metric=~\"GPU_BUSY|XVE_ACTIVE|XVE_THREADS_OCCUPANCY_ALL\", device=~\"$device\"}",
-          "legendFormat": "dev{{device}} {{metric}}"
-        }
-      ],
+      "gridPos": { "x": 12, "y": 6, "w": 12, "h": 9 },
+      "description": "The conversion cost as it moves. Green ≈ efficient (near a dense matmul); climbing into orange/red means the backend is spending its instructions preparing operands.",
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_derived{metric=\"prep_work_per_xmx\", device=~\"$device\"}", "legendFormat": "dev{{device}}" } ],
       "fieldConfig": {
-        "defaults": {
-          "unit": "percent", "min": 0, "max": 100,
-          "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
-        },
+        "defaults": { "unit": "none", "decimals": 2,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "gradientMode": "scheme", "showPoints": "never", "lineInterpolation": "smooth", "thresholdsStyle": { "mode": "dashed" } },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "yellow", "value": 0.5 }, { "color": "orange", "value": 2 }, { "color": "red", "value": 5 } ] },
+          "color": { "mode": "thresholds" } },
         "overrides": []
       },
       "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
     },
+
+    { "type": "row", "title": "Compute vs memory", "gridPos": { "x": 0, "y": 15, "w": 24, "h": 1 }, "collapsed": false },
+
     {
-      "title": "Operand-prep overhead (ALU instructions/s)",
+      "title": "Arithmetic intensity (XMX per VRAM byte)",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "${DS}" },
-      "gridPos": { "x": 0, "y": 9, "w": 12, "h": 8 },
-      "description": "Work done to prepare operands rather than multiply them. High relative to XMX = a conversion/dequant tax.",
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS}" },
-          "expr": "xmxmon_rate_per_s{metric=~\"XVE_INST_EXECUTED_(BITCONV|INT16|INT32|FP16|FP32|MATH)\", device=~\"$device\"}",
-          "legendFormat": "dev{{device}} {{metric}}"
-        }
-      ],
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "description": "High = compute-fed (matrix engine busy per byte read). Low = memory-fed. Watch this fall as generation becomes bandwidth-bound.",
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_derived{metric=\"xmx_per_vram_byte\", device=~\"$device\"}", "legendFormat": "dev{{device}}" } ],
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 2, "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15, "showPoints": "never", "lineInterpolation": "smooth" } }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+    {
+      "title": "Utilization — busy vs how well fed",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS}" },
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "description": "GPU busy near 100% while XVE-active or occupancy sit low = the engine is spinning waiting on memory, not doing math.",
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_gauge{metric=~\"GPU_BUSY|XVE_ACTIVE|XVE_THREADS_OCCUPANCY_ALL\", device=~\"$device\"}", "legendFormat": "dev{{device}} {{metric}}" } ],
       "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
-        },
-        "overrides": []
+        "defaults": { "unit": "percent", "min": 0, "max": 100, "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "showPoints": "never", "lineInterpolation": "smooth" } },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*GPU_BUSY.*" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } } ] },
+          { "matcher": { "id": "byRegexp", "options": ".*XVE_ACTIVE.*" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#199e70" } } ] },
+          { "matcher": { "id": "byRegexp", "options": ".*OCCUPANCY.*" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#9085e9" } } ] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+    },
+
+    { "type": "row", "title": "Memory & cache", "gridPos": { "x": 0, "y": 24, "w": 24, "h": 1 }, "collapsed": false },
+
+    {
+      "title": "VRAM bandwidth (read + write)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${DS}" },
+      "gridPos": { "x": 0, "y": 25, "w": 12, "h": 8 },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_rate_per_s{metric=~\"GPU_MEMORY_BYTE_(READ|WRITE)\", device=~\"$device\"}", "legendFormat": "dev{{device}} {{metric}}" } ],
+      "fieldConfig": {
+        "defaults": { "unit": "Bps", "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 35, "stacking": { "mode": "normal", "group": "A" }, "showPoints": "never", "lineInterpolation": "smooth" } },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*READ.*" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#3987e5" } } ] },
+          { "matcher": { "id": "byRegexp", "options": ".*WRITE.*" }, "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "#d95926" } } ] }
+        ]
       },
       "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
     },
     {
-      "title": "Memory bandwidth",
+      "title": "L3 cache hit rate",
       "type": "timeseries",
       "datasource": { "type": "prometheus", "uid": "${DS}" },
-      "gridPos": { "x": 12, "y": 9, "w": 12, "h": 8 },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS}" },
-          "expr": "xmxmon_rate_per_s{metric=~\"GPU_MEMORY_BYTE_(READ|WRITE)\", device=~\"$device\"}",
-          "legendFormat": "dev{{device}} {{metric}}"
-        }
-      ],
+      "gridPos": { "x": 12, "y": 25, "w": 12, "h": 8 },
+      "description": "Prepared operands reused in cache vs spilled to VRAM. A dip here often coincides with a bandwidth spike on the left.",
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_derived{metric=\"l3_hit_rate\", device=~\"$device\"}", "legendFormat": "dev{{device}}" } ],
       "fieldConfig": {
-        "defaults": {
-          "unit": "Bps",
-          "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }
-        },
+        "defaults": { "unit": "percent", "min": 0, "max": 100,
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15, "gradientMode": "scheme", "showPoints": "never", "lineInterpolation": "smooth" },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "orange", "value": 50 }, { "color": "green", "value": 80 } ] },
+          "color": { "mode": "thresholds" } },
         "overrides": []
       },
       "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
     },
-    {
-      "title": "Capture active",
-      "type": "stat",
-      "datasource": { "type": "prometheus", "uid": "${DS}" },
-      "gridPos": { "x": 0, "y": 17, "w": 6, "h": 4 },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "${DS}" },
-          "expr": "xmxmon_capturing{device=~\"$device\"}",
-          "legendFormat": "dev{{device}}"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [
-            { "type": "value", "options": { "0": { "text": "idle", "index": 0 }, "1": { "text": "CAPTURING", "index": 1 } } }
-          ],
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "text", "value": null }, { "color": "orange", "value": 1 } ] }
-        },
-        "overrides": []
+
+    { "type": "row", "title": "Instruction mix & micro-overhead", "gridPos": { "x": 0, "y": 33, "w": 24, "h": 1 }, "collapsed": true, "panels": [
+
+      {
+        "title": "Where instructions go (ALU pipes vs XMX vs prep)",
+        "type": "timeseries",
+        "datasource": { "type": "prometheus", "uid": "${DS}" },
+        "gridPos": { "x": 0, "y": 34, "w": 12, "h": 8 },
+        "description": "Stacked composition of execution slots — matrix engine, vector ALU pipes, and operand-prep instructions.",
+        "targets": [
+          { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "sum by (device) (xmxmon_rate_per_s{metric=~\"XVE_INST_EXECUTED_XMX_.*\", device=~\"$device\"})", "legendFormat": "dev{{device}} XMX" },
+          { "refId": "B", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "sum by (device) (xmxmon_rate_per_s{metric=~\"XVE_INST_EXECUTED_ALU[0-2]_ALL\", device=~\"$device\"})", "legendFormat": "dev{{device}} ALU pipes" },
+          { "refId": "C", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "sum by (device) (xmxmon_rate_per_s{metric=~\"XVE_INST_EXECUTED_(BITCONV|INT16|INT32|FP16|FP32|MATH)\", device=~\"$device\"})", "legendFormat": "dev{{device}} operand prep" }
+        ],
+        "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 35, "stacking": { "mode": "normal", "group": "A" }, "showPoints": "never", "lineInterpolation": "smooth" } }, "overrides": [] },
+        "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } }
+      },
+      {
+        "title": "Micro-overhead (%)",
+        "type": "timeseries",
+        "datasource": { "type": "prometheus", "uid": "${DS}" },
+        "gridPos": { "x": 12, "y": 34, "w": 12, "h": 8 },
+        "description": "Small taxes that add up: barrier synchronization, branch divergence, instruction-cache misses, and how often two pipes run at once.",
+        "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_derived{metric=~\"barrier_share|divergent_issue|icache_miss|multi_pipe_active\", device=~\"$device\"}", "legendFormat": "dev{{device}} {{metric}}" } ],
+        "fieldConfig": { "defaults": { "unit": "percent", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 0, "showPoints": "never", "lineInterpolation": "smooth" } }, "overrides": [] },
+        "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+      },
+      {
+        "title": "Stall reasons (VectorEngineStalls group)",
+        "type": "timeseries",
+        "datasource": { "type": "prometheus", "uid": "${DS}" },
+        "gridPos": { "x": 0, "y": 42, "w": 12, "h": 8 },
+        "description": "Only populated on a device whose group is VectorEngineStalls (set per device in xmxmon.yaml). Shows WHY the engine was idle.",
+        "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_derived{metric=~\"stall_.*\", device=~\"$device\"}", "legendFormat": "dev{{device}} {{metric}}" } ],
+        "fieldConfig": { "defaults": { "unit": "percent", "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 35, "stacking": { "mode": "normal", "group": "A" }, "showPoints": "never", "lineInterpolation": "smooth" } }, "overrides": [] },
+        "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } }
+      },
+      {
+        "title": "Kernel dispatch rate",
+        "type": "timeseries",
+        "datasource": { "type": "prometheus", "uid": "${DS}" },
+        "gridPos": { "x": 12, "y": 42, "w": 12, "h": 8 },
+        "description": "Launches per second. High rates with little work per launch mean dispatch-bound rather than compute-bound.",
+        "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_derived{metric=\"kernel_dispatches\", device=~\"$device\"}", "legendFormat": "dev{{device}}" } ],
+        "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "lineInterpolation": "smooth" } }, "overrides": [] },
+        "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
       }
-    },
-    {
-      "title": "All scraped metrics (last value)",
-      "type": "table",
-      "datasource": { "type": "prometheus", "uid": "${DS}" },
-      "gridPos": { "x": 6, "y": 17, "w": 18, "h": 12 },
-      "description": "Full inventory of what xmxmon exports — one row per metric per device.",
-      "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_rate_per_s{device=~\"$device\"}", "legendFormat": "", "instant": true, "format": "table" },
-        { "refId": "B", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_gauge{device=~\"$device\"}", "legendFormat": "", "instant": true, "format": "table" }
-      ],
-      "transformations": [
-        { "id": "merge", "options": {} },
-        { "id": "organize", "options": { "excludeByName": { "Time": true, "job": true, "instance": true, "__name__": true } } }
-      ]
-    }
+    ] },
+
+    { "type": "row", "title": "Everything scraped", "gridPos": { "x": 0, "y": 34, "w": 24, "h": 1 }, "collapsed": true, "panels": [
+      {
+        "title": "All metrics (last value)",
+        "type": "table",
+        "datasource": { "type": "prometheus", "uid": "${DS}" },
+        "gridPos": { "x": 0, "y": 35, "w": 24, "h": 12 },
+        "targets": [
+          { "refId": "A", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_rate_per_s{device=~\"$device\"}", "legendFormat": "", "instant": true, "format": "table" },
+          { "refId": "B", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_gauge{device=~\"$device\"}", "legendFormat": "", "instant": true, "format": "table" },
+          { "refId": "C", "datasource": { "type": "prometheus", "uid": "${DS}" }, "expr": "xmxmon_derived{device=~\"$device\"}", "legendFormat": "", "instant": true, "format": "table" }
+        ],
+        "transformations": [
+          { "id": "merge", "options": {} },
+          { "id": "organize", "options": { "excludeByName": { "Time": true, "job": true, "instance": true, "__name__": true } } }
+        ]
+      }
+    ] }
   ]
 }

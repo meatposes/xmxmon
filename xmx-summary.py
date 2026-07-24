@@ -14,14 +14,6 @@ import xmxderive
 XMX = ["XVE_INST_EXECUTED_XMX_INT2", "XVE_INST_EXECUTED_XMX_INT4",
        "XVE_INST_EXECUTED_XMX_INT8", "XVE_INST_EXECUTED_XMX_FP16",
        "XVE_INST_EXECUTED_XMX_BF16"]
-PERCENT_METRICS = {"GPU_BUSY", "XVE_ACTIVE", "L3_STALL", "L3_BUSY",
-                   "L3_INPUT_AVAILABLE", "L3_OUTPUT_READY", "L3_SUPERQ_FULL",
-                   "XVE_MULTIPLE_PIPE_ACTIVE", "XVE_THREADS_OCCUPANCY_ALL",
-                   "XVE_PIPE_ALU0_AND_ALU1_ACTIVE",
-                   "XVE_PIPE_ALU0_AND_ALU2_ACTIVE",
-                   "GPU_MEMORY_REQUEST_QUEUE_FULL", "AvgGpuCoreFrequencyMHz",
-                   "COMMAND_PARSER_COMPUTE_ENGINE_BUSY",
-                   "COMMAND_PARSER_RENDER_ENGINE_BUSY"}
 KEY = ["GPU_BUSY", "XVE_ACTIVE", "XVE_STALL", "XVE_THREADS_OCCUPANCY_ALL",
        "XVE_INST_EXECUTED_ALU0_ALL", "XVE_INST_EXECUTED_ALU1_ALL",
        "XVE_INST_EXECUTED_ALU2_ALL", "XVE_INST_EXECUTED_SEND_ALL",
@@ -59,7 +51,7 @@ def detailed_section(busy, elapsed_s):
     # converted to per-second — so derived values mean the same thing whether
     # they came from a live snapshot or an offline capture.
     for c in list(totals):
-        if c.startswith("XVE_STALL_") or c in PERCENT_METRICS:
+        if xmxderive.is_percent(c):
             totals[c] = totals[c] / len(busy)
         else:
             totals[c] = totals[c] / elapsed_s

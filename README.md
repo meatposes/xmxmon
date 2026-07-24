@@ -236,10 +236,21 @@ With `prometheus: true`, scrape it:
     - targets: ['127.0.0.1:9143']
 ```
 
-Exported series: `xmxmon_rate_per_s{device,metric}` for counters (already converted
-to per-second), `xmxmon_gauge{device,metric}` for levels, and `xmxmon_capturing{device}`.
+Exported series:
 
-`grafana-dashboard.json` imports as a starting dashboard. On import Grafana asks
+- `xmxmon_rate_per_s{device,metric}` — counters, already converted to per-second
+- `xmxmon_gauge{device,metric}` — levels (percentages, frequency)
+- `xmxmon_derived{device,metric}` — the same overhead ratios the TUI and summary
+  show (`prep_work_per_xmx`, `xmx_per_vram_byte`, `l3_hit_rate`, …), so the
+  dashboard graphs identical numbers rather than re-deriving them in PromQL
+- `xmxmon_capturing{device}` — 0/1
+
+`grafana-dashboard.json` imports as a full dashboard: hero stat tiles with
+sparklines, XMX-by-precision and memory as stacked areas, the operand-prep tax
+and L3 hit rate as threshold-coloured lines, arithmetic intensity for the
+compute-vs-memory story, and a shared crosshair so a spike in one panel lines up
+with the dip it caused in another. A collapsed "Instruction mix & micro-overhead"
+row holds ALU-pipe composition, stall reasons, and dispatch rate. On import Grafana asks
 which Prometheus datasource to use; pick yours (it defaults to your default
 Prometheus). The device filter defaults to "All".
 

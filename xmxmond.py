@@ -53,13 +53,8 @@ DEFAULTS = {
 }
 CFG = dict(DEFAULTS)
 
-# Metrics that are levels (average them); everything else is a counter
-# per HW sample (sum over window / window seconds = rate per second).
-GAUGES = {"GPU_BUSY", "XVE_ACTIVE", "XVE_STALL", "XVE_THREADS_OCCUPANCY_ALL",
-          "AvgGpuCoreFrequencyMHz", "CoreFrequencyMHz", "ResultUncertainty",
-          "XVE_INST_EXECUTED_ALU0_ALL_UTILIZATION",
-          "XVE_INST_EXECUTED_ALU1_ALL_UTILIZATION",
-          "XVE_INST_EXECUTED_ALU2_ALL_UTILIZATION"}
+# Levels are averaged; everything else is a per-second counter. The canonical
+# percentage set lives in xmxderive so the offline summary agrees.
 SKIP = {"t", "GpuTime", "GpuCoreClocks", "QueryBeginTime", "ReportReason",
         "ContextIdValid", "ContextId", "SourceId", "StreamMarker"}
 
@@ -138,7 +133,7 @@ class Sampler:
             if k in SKIP:
                 continue
             vs = [r.get(k, 0.0) for r in rows]
-            if k in GAUGES:
+            if xmxderive.is_percent(k):
                 out["gauges"][k] = sum(vs) / len(vs)
             else:
                 out["rates"][k] = sum(vs) / secs
@@ -205,6 +200,15 @@ def broadcaster():
             SSE_CLIENTS.discard(q)
 
 
+def _slug(label):
+    """Stable Prometheus-safe metric name from a derived label."""
+    s = label.lower().replace("/", " per ").replace("%", "pct")
+    s = "".join(c if c.isalnum() else "_" for c in s)
+    while "__" in s:
+        s = s.replace("__", "_")
+    return s.strip("_")
+
+
 def prometheus_text():
     lines = []
     for d, s in SAMPLERS.items():
@@ -213,6 +217,13 @@ def prometheus_text():
             lines.append(f'xmxmon_gauge{{device="{d}",metric="{k}"}} {v:.6g}')
         for k, v in snap.get("rates", {}).items():
             lines.append(f'xmxmon_rate_per_s{{device="{d}",metric="{k}"}} {v:.6g}')
+        # Derived ratios, so Grafana graphs exactly what the TUI/summary show.
+        for item in snap.get("derived", []):
+            val = item.get("value")
+            if val is None:
+                continue
+            lines.append(f'xmxmon_derived{{device="{d}",'
+                         f'metric="{_slug(item["label"])}"}} {val:.6g}')
         lines.append(f'xmxmon_capturing{{device="{d}"}} '
                      f'{1 if snap.get("capture") else 0}')
     return "\n".join(lines) + "\n"
