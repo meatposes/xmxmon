@@ -23,8 +23,10 @@ group: VectorEngineProfile
 # groups:
 #   1: VectorEngineStalls
 
-idle_period_ms: 500          # hardware sampling period while idling
-capture_period_ms: 100       # hardware sampling period during a capture
+idle_period_ms: 500          # the hardware sampling period (used for captures too)
+capture_period_ms: 100       # ignored: capture records at idle_period_ms and never
+                             # reopens the streamer (a reopen on a busy device could
+                             # wedge the OA session). Kept so old configs still load.
 read_ms: 250                 # how often the daemon drains the streamer
 window_s: 1.0                # aggregation window for rates and gauges
 
