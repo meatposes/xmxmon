@@ -108,13 +108,22 @@ keeps the C++ side single-purpose.
 
 Lifecycle details that matter:
 
-- **Changing the sampling period or metric group restarts the child.** Both are
-  fixed at streamer-open time, so `_run()` breaks its read loop and re-spawns when
-  `_want_period` or `_want_group` differs. Captures use the period path to switch
-  to high-rate sampling and drop back afterward; `POST /group` uses the group path
-  for a runtime lens change. A group switch also **clears the rolling window**
-  (`_spawn`) — aggregating two groups' metrics together would corrupt every
-  derived ratio — and is in-memory only, so config wins on restart.
+- **A metric-group switch (`POST /group`) restarts the child**, since the group is
+  fixed at streamer-open time: `_run()` breaks its read loop and re-spawns when
+  `_want_group` differs, and `_spawn` **clears the rolling window** (mixing two
+  groups' metrics would corrupt every derived ratio). In-memory only; config wins
+  on restart.
+- **Captures do NOT restart the child.** They tee samples at the current rate.
+  Reopening the streamer to raise the rate could wedge the OA session on a busy
+  device — an uninterruptible driver call that froze telemetry and left the daemon
+  respawning against a hung context, the pattern that escalates a GPU hang. So
+  `capture_period_ms` is ignored. **Do not reintroduce a per-capture rate change.**
+  A timed capture is ended by a wall-clock watchdog (`capture_watchdog` →
+  `check_capture_expiry`), not the `until` check on sample arrival — a stalled
+  streamer once pinned a zero-row capture open forever.
+- **Respawns back off.** A child dying within ~5 s of spawning (a failed or wedged
+  streamer open) increments a counter; the loop then sleeps up to 30 s. Never
+  tight-retry an OA open — that is what drives a wedge toward a card reset.
 - **Switchable groups are enumerated at startup.** `enumerate_groups` parses
   `xmxmon --list` into `AVAILABLE[device]`, minus `UNSWITCHABLE_GROUPS`
   (`EuStallSampling`, `TestOa` — they need a different Level Zero mechanism, not

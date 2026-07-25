@@ -101,8 +101,9 @@ curl -s -X POST localhost:9143/capture/stop -d '{"device":0}'
 curl -s localhost:9143/captures                            # where the file landed
 ```
 
-Between captures it idles at a coarse sampling period, so leaving it up costs
-very little. Edit your `xmxmon.yaml` to change devices, periods, or to enable the
+It samples at a coarse period, so leaving it up costs very little (a capture just
+tees those same samples to a file — it doesn't sample any faster). Edit your
+`xmxmon.yaml` to change devices, the period, or to enable the
 web UI and Prometheus exporter — see [Configuration](#configuration) and
 [Daemon mode](#daemon-mode) below, and restart the container to pick up changes.
 Stop it with `docker compose down` (or `docker rm -f xmxmon` if you started it
@@ -230,7 +231,7 @@ Adding a fourth view is a data change, not a code change — see
 ## Daemon mode
 
 `xmxmond.py` keeps samplers running continuously and adds an HTTP API, so
-benchmark scripts can turn high-rate capture on and off around a run
+benchmark scripts can tag a run — start and stop a capture around it
 (`docker compose up -d`, as in [Leave it running](#leave-it-running) above).
 
 Published on `127.0.0.1:9143` only. Always available:
@@ -238,7 +239,7 @@ Published on `127.0.0.1:9143` only. Always available:
 | Endpoint | Purpose |
 |---|---|
 | `GET /now` | latest aggregate snapshot (JSON) |
-| `POST /capture` | `{"name":"run1","device":0,"duration_s":600}` — switch to high-rate sampling, tee to a tagged ndjson in `captures/`, auto-revert |
+| `POST /capture` | `{"name":"run1","device":0,"duration_s":600}` — tee samples to a tagged ndjson in `captures/` at the current rate; stops on `duration_s` (wall clock) or `/capture/stop`. Does not change the sampling rate or reopen the streamer. |
 | `POST /capture/stop` | `{"device":0}` — end early |
 | `GET /captures` | running and finished captures |
 | `POST /group` | `{"device":0,"group":"MemoryProfile"}` — switch metric group at runtime; reverts to config on restart |
