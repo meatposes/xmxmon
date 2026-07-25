@@ -187,7 +187,9 @@ groups:
 ```
 
 **Switch on the fly.** You don't have to edit the config and restart to change
-lens. The web UI has a group dropdown in each device header; the TUI's `g` key
+lens. The web UI has a group dropdown in each device header, with a "sync all"
+checkbox beside it — check it (it links across every card) and a dropdown change
+switches all GPUs at once. The TUI's `g` key
 opens a picker: choose the device — with "apply to all devices" as the first
 entry — then the group. Both hit `POST /group`. The change is in-memory only, so the next
 daemon start returns to whatever `xmxmon.yaml` specifies. Two caveats, both from

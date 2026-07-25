@@ -24,6 +24,9 @@
   .devhead .grpsel { font-size: 12px; color: var(--s4); font-weight: 600;
     background: var(--surface); border: 1px solid var(--grid); border-radius: 5px;
     padding: 3px 6px; cursor: pointer; }
+  .devhead .synclbl { font-size: 12px; color: var(--ink-2); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 4px; user-select: none; }
+  .devhead .synclbl input { cursor: pointer; }
   .cap { font-size: 12px; color: var(--ink-2); }
   .cap.active { color: var(--s4); }
   .tiles { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -83,6 +86,7 @@ const PAL = ["#3987e5","#d95926","#199e70","#c98500","#d55181","#008300","#9085e
 // `view` describing which series to plot for whichever metric group that device
 // samples. This file only knows how to render a spec, never what the groups are.
 const WINDOW_S = 120, hist = {}, VIEW = {}, GROUP = {};  // dev -> points / view / group
+let linkAll = false;   // "sync all": a group change hits every GPU at once
 function fmtSI(v){ if(v>=1e12)return (v/1e12).toFixed(1)+"T";
   if(v>=1e9)return (v/1e9).toFixed(1)+"G"; if(v>=1e6)return (v/1e6).toFixed(1)+"M";
   if(v>=1e3)return (v/1e3).toFixed(1)+"k"; return v.toFixed(0); }
@@ -102,6 +106,8 @@ function ensureDevice(dev, view, group, switchable){
   el.innerHTML=`<div class="devhead"><h2>device ${dev}</h2>
       <select class="grpsel" id="grp${dev}" onchange="switchGroup('${dev}',this.value)"
         title="switch this GPU's metric group — device-wide, reverts to config on restart">${opts}</select>
+      <label class="synclbl" title="when checked, the group dropdown changes every GPU at once"><input
+        type="checkbox" class="syncbox"${linkAll?" checked":""} onchange="setLink(this.checked)">sync all</label>
       <span class="cap" id="cap${dev}">idle</span></div>
     <div class="tiles" id="tiles${dev}"></div>
     <div class="charts">${charts.map(c=>`
@@ -118,7 +124,11 @@ function ensureDevice(dev, view, group, switchable){
       <button class="stop" onclick="stopCap(${dev})">stop</button>
       <button class="ghost" id="dbtn${dev}" onclick="toggleDetail(${dev})">show detail</button>
     </div>`;
-  document.getElementById("devices").appendChild(el);
+  // Insert in device-index order so a rebuild (e.g. after a group switch)
+  // never reorders the cards.
+  const cont=document.getElementById("devices");
+  const after=[...cont.children].find(c=>parseInt(c.id.slice(3),10)>parseInt(dev,10));
+  cont.insertBefore(el, after||null);
   hist[dev]=[];
   for(const c of charts){
     const cv=document.getElementById(`cv-${dev}-${c.id}`);
@@ -171,9 +181,15 @@ async function startCap(dev){
 async function stopCap(dev){
   await fetch("/capture/stop",{method:"POST",body:JSON.stringify({device:dev})});
 }
+function setLink(v){            // keep every device's checkbox in lockstep
+  linkAll=v;
+  document.querySelectorAll(".syncbox").forEach(c=>{c.checked=v;});
+}
 async function switchGroup(dev,group){
-  await fetch("/group",{method:"POST",
-    body:JSON.stringify({device:+dev,group})});   // daemon keys devices by int
+  // daemon keys devices by int; when synced, change every GPU at once
+  const targets = linkAll ? Object.keys(GROUP) : [dev];
+  await Promise.all(targets.map(d=>fetch("/group",
+    {method:"POST",body:JSON.stringify({device:+d,group})})));
 }
 
 function draw(dev){
