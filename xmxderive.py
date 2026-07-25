@@ -612,6 +612,13 @@ PROFILES = {
 }
 
 
+# Groups a UI may switch a device to at runtime. Each has a coherent view (the
+# four profiled groups) or renders usefully through the VEP profile's derive
+# (VectorEngineStalls -> stall breakdown). Ordered for cycling in the TUI.
+SWITCHABLE = ["VectorEngineProfile", "ComputeBasic", "MemoryProfile",
+              "DeviceCacheProfile", "VectorEngineStalls"]
+
+
 def _profile(group):
     """Return the profile for a group, defaulting to VectorEngineProfile.
 

@@ -186,6 +186,14 @@ groups:
   1: MemoryProfile        # device 1 samples the memory subsystem instead
 ```
 
+**Switch on the fly.** You don't have to edit the config and restart to change
+lens. The web UI has a group dropdown in each device header, and the TUI cycles a
+device's group with `g` — both hit `POST /group`. The change is in-memory only, so
+the next daemon start returns to whatever `xmxmon.yaml` specifies. Two caveats,
+both from the hardware: counters are device-wide, so the switch affects **every**
+viewer of that GPU, not just you; and it is refused while that device is
+capturing (stop the capture first, so the ndjson keeps a single schema).
+
 Everything downstream keys off the active group automatically. `xmx-summary.py`
 detects the group from a capture's columns, so offline analysis needs no flag.
 There is nothing to configure beyond the group itself; a metric absent from the
@@ -213,6 +221,7 @@ Published on `127.0.0.1:9143` only. Always available:
 | `POST /capture` | `{"name":"run1","device":0,"duration_s":600}` — switch to high-rate sampling, tee to a tagged ndjson in `captures/`, auto-revert |
 | `POST /capture/stop` | `{"device":0}` — end early |
 | `GET /captures` | running and finished captures |
+| `POST /group` | `{"device":0,"group":"MemoryProfile"}` — switch metric group at runtime; reverts to config on restart |
 
 Omit `device` on either capture call to act on every configured device at once.
 A capture ends when its `duration_s` elapses or you stop it, whichever comes

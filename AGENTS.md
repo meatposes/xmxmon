@@ -103,10 +103,13 @@ keeps the C++ side single-purpose.
 
 Lifecycle details that matter:
 
-- **Changing the sampling period restarts the child.** The period is fixed at
-  streamer-open time, so `_run()` breaks its read loop and re-spawns when
-  `_want_period` differs. Captures use this to switch to high-rate sampling and
-  drop back afterward.
+- **Changing the sampling period or metric group restarts the child.** Both are
+  fixed at streamer-open time, so `_run()` breaks its read loop and re-spawns when
+  `_want_period` or `_want_group` differs. Captures use the period path to switch
+  to high-rate sampling and drop back afterward; `POST /group` uses the group path
+  for a runtime lens change. A group switch also **clears the rolling window**
+  (`_spawn`) — aggregating two groups' metrics together would corrupt every
+  derived ratio — and is in-memory only, so config wins on restart.
 - **Captures are tee'd, not buffered.** Rows are written as they arrive, so a
   killed daemon still leaves a valid partial ndjson. Preserve this — a previous
   generation of tooling lost entire captures by flushing only at exit.

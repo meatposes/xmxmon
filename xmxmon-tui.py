@@ -22,6 +22,28 @@ DETAILED = "--detailed" in ARGS or "-d" in ARGS
 POS = [a for a in ARGS if not a.startswith("-")]
 BASE = POS[0] if POS else "http://localhost:9143"
 
+def post(path, obj):
+    """Fire-and-forget POST to the daemon (capture/group controls)."""
+    req = urllib.request.Request(
+        BASE + path, data=json.dumps(obj).encode(),
+        headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=3).read()
+    except Exception:
+        pass
+
+
+def cycle_groups(snap):
+    """Advance every device to the next switchable metric group."""
+    for dev, s in snap.items():
+        sw = s.get("switchable") or []
+        cur = s.get("group")
+        if not sw:
+            continue
+        nxt = sw[(sw.index(cur) + 1) % len(sw)] if cur in sw else sw[0]
+        post("/group", {"device": int(dev), "group": nxt})
+
+
 def si(v):
     for t, s in ((1e12, "T"), (1e9, "G"), (1e6, "M"), (1e3, "k")):
         if v >= t:
@@ -206,7 +228,7 @@ def main():
             hint = "[d] detail" if not detailed else \
                    ("[d] off [r] raw" if not show_raw else "[d] off [r] hide raw")
             out = [f"\x1b[H\x1b[2Jxmxmon — {time.strftime('%H:%M:%S')}"
-                   f"   {hint} [q] quit"]
+                   f"   {hint} [g] group [q] quit"]
             for dev, s in sorted(snap.items()):
                 cap = s.get("capture")
                 state = (f"CAPTURING {cap['name']} ({cap['rows']}r)" if cap
@@ -244,6 +266,9 @@ def main():
                         break
                     if ch == "r" and detailed:
                         show_raw = not show_raw
+                        break
+                    if ch == "g":
+                        cycle_groups(snap)
                         break
     except KeyboardInterrupt:
         pass

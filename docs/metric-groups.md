@@ -45,6 +45,20 @@ names, and records that group in every snapshot. From there:
 Nothing but `xmxderive.py` knows what the groups are. That is the whole point of
 the profile registry: one place to add a view, four surfaces that pick it up.
 
+### Switching at runtime
+
+`POST /group {"device": N, "group": G}` changes a device's group without
+touching the config — the web UI's per-device dropdown and the TUI's `g` key both
+call it. `Sampler.switch_group` sets `_want_group`; the read loop already breaks
+and respawns the child on a group change (the same path a capture uses for a
+period change), and `_spawn` **clears the rolling window** on the switch so the
+next aggregation isn't a blend of two groups' metrics. It is in-memory only, so a
+restart reverts to config. Constraints, both from the hardware: the switch is
+device-wide (every viewer sees it) and refused mid-capture (one ndjson, one
+schema). Allowed targets are `xmxderive.SWITCHABLE`; anything else returns 409.
+The web UI rebuilds a device's panel when it sees the group change in the
+snapshot, so the charts follow.
+
 ## The profile format (`xmxderive.py`)
 
 `PROFILES[group]` is a dict:

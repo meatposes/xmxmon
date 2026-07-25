@@ -21,7 +21,9 @@
   .devhead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
              margin-bottom: 10px; }
   .devhead h2 { font-size: 15px; font-weight: 600; }
-  .devhead .grp { font-size: 12px; color: var(--s4); font-weight: 600; }
+  .devhead .grpsel { font-size: 12px; color: var(--s4); font-weight: 600;
+    background: var(--surface); border: 1px solid var(--grid); border-radius: 5px;
+    padding: 3px 6px; cursor: pointer; }
   .cap { font-size: 12px; color: var(--ink-2); }
   .cap.active { color: var(--s4); }
   .tiles { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -80,7 +82,7 @@ const PAL = ["#3987e5","#d95926","#199e70","#c98500","#d55181","#008300","#9085e
 // The chart/tile layout is no longer hardcoded: the daemon sends a per-device
 // `view` describing which series to plot for whichever metric group that device
 // samples. This file only knows how to render a spec, never what the groups are.
-const WINDOW_S = 120, hist = {}, VIEW = {};   // dev -> points / view spec
+const WINDOW_S = 120, hist = {}, VIEW = {}, GROUP = {};  // dev -> points / view / group
 function fmtSI(v){ if(v>=1e12)return (v/1e12).toFixed(1)+"T";
   if(v>=1e9)return (v/1e9).toFixed(1)+"G"; if(v>=1e6)return (v/1e6).toFixed(1)+"M";
   if(v>=1e3)return (v/1e3).toFixed(1)+"k"; return v.toFixed(0); }
@@ -90,13 +92,16 @@ function fmtOf(name){                       // chart y-axis / hover formatter
   return fmtSI;                             // "si" (default)
 }
 
-function ensureDevice(dev, view){
+function ensureDevice(dev, view, group, switchable){
   if(document.getElementById("dev"+dev)) return;
   VIEW[dev] = view;
   const charts = view.charts || [];
+  const opts=(switchable||[group]).map(g=>
+    `<option value="${g}"${g===group?" selected":""}>${g}</option>`).join("");
   const el=document.createElement("div"); el.className="device"; el.id="dev"+dev;
   el.innerHTML=`<div class="devhead"><h2>device ${dev}</h2>
-      <span class="grp">${view.title||""}</span>
+      <select class="grpsel" id="grp${dev}" onchange="switchGroup('${dev}',this.value)"
+        title="switch this GPU's metric group — device-wide, reverts to config on restart">${opts}</select>
       <span class="cap" id="cap${dev}">idle</span></div>
     <div class="tiles" id="tiles${dev}"></div>
     <div class="charts">${charts.map(c=>`
@@ -165,6 +170,10 @@ async function startCap(dev){
 }
 async function stopCap(dev){
   await fetch("/capture/stop",{method:"POST",body:JSON.stringify({device:dev})});
+}
+async function switchGroup(dev,group){
+  await fetch("/group",{method:"POST",
+    body:JSON.stringify({device:+dev,group})});   // daemon keys devices by int
 }
 
 function draw(dev){
@@ -237,7 +246,14 @@ es.onmessage=ev=>{
   const all=JSON.parse(ev.data), now=Date.now()/1000;
   for(const [dev,snap] of Object.entries(all)){
     if(!snap.view) continue;               // no aggregate yet
-    ensureDevice(dev,snap.view);
+    // A runtime group switch changes the whole panel layout; tear down and
+    // rebuild this device when its group changes under us.
+    if(GROUP[dev]!==undefined && GROUP[dev]!==snap.group){
+      const old=document.getElementById("dev"+dev); if(old) old.remove();
+      delete hist[dev]; delete VIEW[dev];
+    }
+    GROUP[dev]=snap.group;
+    ensureDevice(dev,snap.view,snap.group,snap.switchable);
     const charts=snap.view.charts||[];
     const point={t:now};
     for(const c of charts){

@@ -12,6 +12,9 @@ Always on:
   POST /capture        {"name": "...", "device": 1, "duration_s": 600,
                         "period_ms": 100}  -> start tagged high-rate capture
   POST /capture/stop   {"device": 1}       -> end capture early
+  POST /group          {"device": 1, "group": "MemoryProfile"}
+                        -> switch metric group at runtime (reverts to config
+                        on restart; refused while that device is capturing)
 
 Opt-in (disabled by default; enable in config):
   GET  /metrics        Prometheus text exposition   [prometheus: true]
@@ -74,9 +77,16 @@ class Sampler:
         self.capture = None            # dict: name, file, until, rows
         self.period_ms = cfg["idle_period_ms"]
         self._want_period = self.period_ms
+        self._want_group = self.group  # runtime override; config wins on restart
         threading.Thread(target=self._run, daemon=True).start()
 
     def _spawn(self):
+        # A runtime group switch clears the window: mixing two groups' metrics
+        # in one aggregation would corrupt every derived ratio.
+        if self.group != self._want_group:
+            self.group = self._want_group
+            with self.lock:
+                self.window.clear()
         cmd = [self.cfg["binary"], "--device", str(self.device),
                "--group", self.group,
                "--period-ms", str(self._want_period),
@@ -107,8 +117,9 @@ class Sampler:
                         cap["rows"] += 1
                         if cap["until"] and now >= cap["until"]:
                             self._end_capture_locked()
-                if self._want_period != self.period_ms:
-                    break  # restart child with new period
+                if self._want_period != self.period_ms \
+                        or self._want_group != self.group:
+                    break  # restart child with new period or metric group
             try:
                 self.proc.terminate()
                 self.proc.wait(timeout=10)
@@ -123,11 +134,13 @@ class Sampler:
                                     "rows": self.capture["rows"]}
         if not rows:
             return {"device": self.device, "n": 0, "capture": cap,
-                    "group": self.group, "view": xmxderive.view(self.group)}
+                    "group": self.group, "view": xmxderive.view(self.group),
+                    "switchable": xmxderive.SWITCHABLE}
         secs = self.cfg["window_s"]
         out = {"device": self.device, "n": len(rows), "capture": cap,
                "group": self.group, "period_ms": self.period_ms,
-               "view": xmxderive.view(self.group), "rates": {}, "gauges": {}}
+               "view": xmxderive.view(self.group),
+               "switchable": xmxderive.SWITCHABLE, "rates": {}, "gauges": {}}
         keys = rows[-1].keys()
         for k in keys:
             if k in SKIP:
@@ -177,6 +190,21 @@ class Sampler:
                 return False
             self._end_capture_locked()
         return True
+
+    def switch_group(self, group):
+        """Runtime-only metric-group change; reverts to config on restart.
+
+        Refused during a capture: switching mid-capture would write two metric
+        schemas into one ndjson. The switch is device-wide (counters are), so
+        every viewer of this GPU sees the new group, not just the caller.
+        """
+        if group not in xmxderive.SWITCHABLE:
+            return (False, f"unknown group (choose from {xmxderive.SWITCHABLE})")
+        with self.lock:
+            if self.capture:
+                return (False, "capturing — stop the capture first")
+        self._want_group = group
+        return (True, group)
 
 
 HISTORY = []
@@ -298,6 +326,13 @@ class Handler(BaseHTTPRequestHandler):
             targets = [dev] if dev is not None else list(SAMPLERS)
             self._send(200, json.dumps(
                 {d: SAMPLERS[d].stop_capture() for d in targets if d in SAMPLERS}))
+        elif self.path == "/group":
+            dev = body.get("device")
+            if dev not in SAMPLERS:
+                return self._send(404, f'{{"error":"no device {dev}"}}')
+            ok, msg = SAMPLERS[dev].switch_group(body.get("group"))
+            self._send(200 if ok else 409,
+                       json.dumps({"ok": ok, "group": msg}))
         else:
             self._send(404, '{"error":"not found"}')
 
