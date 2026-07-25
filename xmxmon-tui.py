@@ -33,15 +33,35 @@ def post(path, obj):
         pass
 
 
-def cycle_groups(snap):
-    """Advance every device to the next switchable metric group."""
-    for dev, s in snap.items():
+def menu_screen(snap, menu, width):
+    """Full-screen picker for the [g] group switch.
+
+    Two stages: choose a device (skipped when only one), then choose the group
+    for it. The device's current group is marked. Selection is by number.
+    """
+    devs = sorted(snap.items())
+    lines = ["\x1b[H\x1b[2Jxmxmon — switch metric group      "
+             "[1-9] select   [Esc] cancel", ""]
+    if menu["stage"] == "dev":
+        lines.append(" choose device:")
+        for i, (dev, s) in enumerate(devs, 1):
+            lines.append(f"   {i})  device {dev}    (now: {s.get('group', '?')})")
+    else:
+        dev = menu["dev"]
+        s = snap.get(dev, {})
         sw = s.get("switchable") or []
         cur = s.get("group")
-        if not sw:
-            continue
-        nxt = sw[(sw.index(cur) + 1) % len(sw)] if cur in sw else sw[0]
-        post("/group", {"device": int(dev), "group": nxt})
+        lines.append(f" device {dev} — choose group:")
+        for i, g in enumerate(sw, 1):
+            lines.append(f"   {i}) {'*' if g == cur else ' '} {g}")
+        if s.get("capture"):
+            lines.append("")
+            lines.append(" note: this device is CAPTURING — switch will be "
+                         "refused until you stop it")
+    lines.append("")
+    lines.append(" the switch is device-wide (every viewer sees it) and "
+                 "reverts to config on restart")
+    return lines
 
 
 def si(v):
@@ -203,6 +223,7 @@ def main():
     detailed = DETAILED
     show_raw = False
     peaks = {}
+    menu = None            # None, or {"stage": "dev"} / {"stage": "grp", "dev": d}
     # Raw-mode key polling only works on a real terminal; when piped or run
     # under nohup, fall back to plain refreshes and let SIGINT do the quitting.
     interactive = sys.stdin.isatty()
@@ -249,6 +270,8 @@ def main():
                     out.extend(right)
                 if detailed and show_raw:
                     out.extend(raw_block(s, width))
+            if menu is not None:                       # picker overlays the view
+                out = menu_screen(snap, menu, width)
             print("\n".join(out), flush=True)
             if not interactive:
                 time.sleep(0.5)
@@ -257,6 +280,22 @@ def main():
             while time.time() - t0 < 0.5:
                 if select.select([sys.stdin], [], [], 0.1)[0]:
                     ch = sys.stdin.read(1)
+                    if menu is not None:               # menu captures all keys
+                        if ch in ("\x1b", "q"):
+                            menu = None
+                        elif ch.isdigit():
+                            devs = sorted(snap.items())
+                            n = int(ch)
+                            if menu["stage"] == "dev":
+                                if 1 <= n <= len(devs):
+                                    menu = {"stage": "grp", "dev": devs[n - 1][0]}
+                            else:
+                                sw = snap.get(menu["dev"], {}).get("switchable") or []
+                                if 1 <= n <= len(sw):
+                                    post("/group", {"device": int(menu["dev"]),
+                                                    "group": sw[n - 1]})
+                                    menu = None
+                        break
                     if ch == "q":
                         return
                     if ch == "d":
@@ -267,8 +306,10 @@ def main():
                     if ch == "r" and detailed:
                         show_raw = not show_raw
                         break
-                    if ch == "g":
-                        cycle_groups(snap)
+                    if ch == "g":                      # open the picker
+                        devs = sorted(snap.items())
+                        menu = ({"stage": "grp", "dev": devs[0][0]}
+                                if len(devs) == 1 else {"stage": "dev"})
                         break
     except KeyboardInterrupt:
         pass
