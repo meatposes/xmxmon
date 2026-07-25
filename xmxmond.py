@@ -9,8 +9,10 @@ per-second rates/averages, and serves:
 Always on:
   GET  /now            latest aggregate snapshot as JSON
   GET  /captures       list finished/running captures
-  POST /capture        {"name": "...", "device": 1, "duration_s": 600,
-                        "period_ms": 100}  -> start tagged high-rate capture
+  POST /capture        {"name": "...", "device": 1, "duration_s": 600}
+                        -> tee tagged samples to an ndjson at the current rate
+                        ("period_ms" accepted but ignored; capture never
+                        reopens the streamer — see Sampler.start_capture)
   POST /capture/stop   {"device": 1}       -> end capture early
   POST /group          {"device": 1, "group": "MemoryProfile"}
                         -> switch metric group at runtime (reverts to config
@@ -46,8 +48,10 @@ DEFAULTS = {
     # metric group can be active per device, so sampling stalls on one card
     # while another samples XMX is the way to see both at once.
     "groups": {},
-    "idle_period_ms": 500,
-    "capture_period_ms": 100,
+    "idle_period_ms": 500,      # the sampling period, used for captures too
+    "capture_period_ms": 100,   # deprecated/ignored: capture no longer changes
+                                # the rate (reopening the streamer could wedge
+                                # the OA session); kept so old configs still load
     "read_ms": 250,
     "listen": "127.0.0.1:9143",
     "capture_dir": "/data/captures",
@@ -139,7 +143,9 @@ class Sampler:
                                      stderr=subprocess.DEVNULL, text=True)
 
     def _run(self):
+        fails = 0
         while True:
+            spawned = time.time()
             self._spawn()
             for line in self.proc.stdout:
                 if not line.startswith("{"):
@@ -168,7 +174,13 @@ class Sampler:
                 self.proc.wait(timeout=10)
             except Exception:
                 pass
-            time.sleep(0.5)
+            # A child that dies within a few seconds of spawning almost always
+            # failed to open the streamer (the OA session is busy or wedged).
+            # Back off exponentially instead of tight-looping — repeated reopen
+            # attempts against a wedged OA context are exactly what escalate a
+            # hang toward needing a card reset. A healthy run resets the count.
+            fails = fails + 1 if time.time() - spawned < 5 else 0
+            time.sleep(min(30.0, 0.5 * (2 ** min(fails, 6))))
 
     def _switchable(self):
         """Groups this device can switch to (enumerated, profiled-first)."""
@@ -209,7 +221,17 @@ class Sampler:
         return out
 
     # -- capture control ---------------------------------------------------
-    def start_capture(self, name, duration_s, period_ms):
+    def start_capture(self, name, duration_s, period_ms=None):
+        """Tee live samples to a tagged ndjson at the CURRENT sampling rate.
+
+        Deliberately does NOT reopen the streamer to raise the rate. Reopening
+        the OA session on a busy device could wedge it in an uninterruptible
+        driver call — that froze telemetry at a stale value and left the daemon
+        respawning against a hung OA context, the pattern that escalates a GPU
+        hang. A capture is worth far less than that risk, and the idle rate is
+        fine for tagging a run. `period_ms` is accepted for API compatibility
+        and ignored.
+        """
         os.makedirs(self.cfg["capture_dir"], exist_ok=True)
         path = os.path.join(self.cfg["capture_dir"],
                             f"{name}-dev{self.device}-{int(time.time())}.ndjson")
@@ -219,7 +241,6 @@ class Sampler:
             self.capture = {"name": name, "path": path, "rows": 0,
                             "file": open(path, "w"), "start": time.time(),
                             "until": time.time() + duration_s if duration_s else None}
-        self._want_period = period_ms or self.cfg["capture_period_ms"]
         return path
 
     def _end_capture_locked(self):
@@ -229,7 +250,19 @@ class Sampler:
                         "device": self.device, "rows": cap["rows"],
                         "duration_s": round(time.time() - cap["start"], 1)})
         self.capture = None
-        self._want_period = self.cfg["idle_period_ms"]
+
+    def check_capture_expiry(self):
+        """End a timed capture once its wall-clock deadline passes.
+
+        The `until` check in the read loop only fires when a sample arrives; a
+        stalled or slow streamer would otherwise pin a capture open forever
+        (observed: a wedged sampler left a capture running with zero rows). A
+        watchdog calls this on a fixed cadence so expiry never depends on data.
+        """
+        with self.lock:
+            cap = self.capture
+            if cap and cap["until"] and time.time() >= cap["until"]:
+                self._end_capture_locked()
 
     def stop_capture(self):
         with self.lock:
@@ -259,6 +292,17 @@ class Sampler:
 HISTORY = []
 SAMPLERS = {}
 SSE_CLIENTS = set()
+
+
+def capture_watchdog():
+    """End timed captures on a wall clock, independent of sample arrival."""
+    while True:
+        time.sleep(0.5)
+        for s in list(SAMPLERS.values()):
+            try:
+                s.check_capture_expiry()
+            except Exception:
+                pass
 
 
 def broadcaster():
@@ -412,6 +456,7 @@ def main():
     for d in cfg["devices"]:
         SAMPLERS[d] = Sampler(cfg, d)
     threading.Thread(target=broadcaster, daemon=True).start()
+    threading.Thread(target=capture_watchdog, daemon=True).start()
     host, port = cfg["listen"].rsplit(":", 1)
     srv = ThreadingHTTPServer((host, int(port)), Handler)
     print(f"xmxmond listening on {cfg['listen']}, devices {cfg['devices']}, "
