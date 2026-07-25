@@ -1,0 +1,528 @@
+{
+ "title": "xmxmon \u2014 XvePipelineRaytracingProfile",
+ "uid": "xmxmon-xve-rt",
+ "timezone": "",
+ "refresh": "5s",
+ "schemaVersion": 39,
+ "graphTooltip": 1,
+ "time": {
+  "from": "now-15m",
+  "to": "now"
+ },
+ "templating": {
+  "list": [
+   {
+    "name": "DS",
+    "label": "Prometheus",
+    "type": "datasource",
+    "query": "prometheus",
+    "refresh": 1,
+    "current": {},
+    "hide": 0
+   },
+   {
+    "name": "device",
+    "label": "GPU device",
+    "type": "query",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "${DS}"
+    },
+    "query": {
+     "query": "label_values(xmxmon_gauge, device)",
+     "refId": "StandardVariableQuery"
+    },
+    "includeAll": true,
+    "multi": true,
+    "allValue": ".*",
+    "current": {
+     "text": [
+      "All"
+     ],
+     "value": [
+      "$__all"
+     ]
+    },
+    "refresh": 2,
+    "sort": 1,
+    "hide": 0
+   }
+  ]
+ },
+ "panels": [
+  {
+   "title": "At a glance",
+   "type": "row",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "title": "Core clock",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 6,
+    "y": 1,
+    "w": 6,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"AvgGpuCoreFrequencyMHz\", device=~\"$device\"}",
+     "legendFormat": "dev{{device}}"
+    }
+   ],
+   "options": {
+    "graphMode": "area",
+    "colorMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "none",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "title": "Levels (%)",
+   "type": "row",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 5,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "title": "Levels 1",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 6,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_ACTIVE\", device=~\"$device\"}",
+     "legendFormat": "XVE_ACTIVE"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_STALL\", device=~\"$device\"}",
+     "legendFormat": "XVE_STALL"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_INST_EXECUTED_ALU0_ALL_UTILIZATION\", device=~\"$device\"}",
+     "legendFormat": "XVE_INST_EXECUTED_ALU0_ALL_UTILIZATION"
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_INST_EXECUTED_ALU1_ALL_UTILIZATION\", device=~\"$device\"}",
+     "legendFormat": "XVE_INST_EXECUTED_ALU1_ALL_UTILIZATION"
+    },
+    {
+     "refId": "E",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_INST_EXECUTED_ALU2_ALL_UTILIZATION\", device=~\"$device\"}",
+     "legendFormat": "XVE_INST_EXECUTED_ALU2_ALL_UTILIZATION"
+    },
+    {
+     "refId": "F",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_PIPE_ALU0_AND_ALU1_ACTIVE\", device=~\"$device\"}",
+     "legendFormat": "XVE_PIPE_ALU0_AND_ALU1_ACTIVE"
+    },
+    {
+     "refId": "G",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_PIPE_ALU0_AND_ALU2_ACTIVE\", device=~\"$device\"}",
+     "legendFormat": "XVE_PIPE_ALU0_AND_ALU2_ACTIVE"
+    },
+    {
+     "refId": "H",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_MULTIPLE_PIPE_ACTIVE\", device=~\"$device\"}",
+     "legendFormat": "XVE_MULTIPLE_PIPE_ACTIVE"
+    },
+    {
+     "refId": "I",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_INST_EXECUTED_ALU0_RT_AHS_UTILIZATION\", device=~\"$device\"}",
+     "legendFormat": "XVE_INST_EXECUTED_ALU0_RT_AHS_UTILIZATION"
+    },
+    {
+     "refId": "J",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_INST_EXECUTED_ALU0_RT_CHS_UTILIZATION\", device=~\"$device\"}",
+     "legendFormat": "XVE_INST_EXECUTED_ALU0_RT_CHS_UTILIZATION"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "min": 0,
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "fillOpacity": 8,
+      "showPoints": "never",
+      "spanNulls": true
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "max": 100
+    },
+    "overrides": []
+   }
+  },
+  {
+   "title": "Levels 2",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 6,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_INST_EXECUTED_ALU0_RT_MS_UTILIZATION\", device=~\"$device\"}",
+     "legendFormat": "XVE_INST_EXECUTED_ALU0_RT_MS_UTILIZATION"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_INST_EXECUTED_ALU0_PS_UTILIZATION\", device=~\"$device\"}",
+     "legendFormat": "XVE_INST_EXECUTED_ALU0_PS_UTILIZATION"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_INST_EXECUTED_ALU0_ASYNC_CS_UTILIZATION\", device=~\"$device\"}",
+     "legendFormat": "XVE_INST_EXECUTED_ALU0_ASYNC_CS_UTILIZATION"
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_INST_EXECUTED_ALU0_CS_UTILIZATION\", device=~\"$device\"}",
+     "legendFormat": "XVE_INST_EXECUTED_ALU0_CS_UTILIZATION"
+    },
+    {
+     "refId": "E",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_INST_EXECUTED_ALU1_RT_AHS_UTILIZATION\", device=~\"$device\"}",
+     "legendFormat": "XVE_INST_EXECUTED_ALU1_RT_AHS_UTILIZATION"
+    },
+    {
+     "refId": "F",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_INST_EXECUTED_ALU1_RT_CHS_UTILIZATION\", device=~\"$device\"}",
+     "legendFormat": "XVE_INST_EXECUTED_ALU1_RT_CHS_UTILIZATION"
+    },
+    {
+     "refId": "G",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_INST_EXECUTED_ALU1_RT_MS_UTILIZATION\", device=~\"$device\"}",
+     "legendFormat": "XVE_INST_EXECUTED_ALU1_RT_MS_UTILIZATION"
+    },
+    {
+     "refId": "H",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_INST_EXECUTED_ALU1_PS_UTILIZATION\", device=~\"$device\"}",
+     "legendFormat": "XVE_INST_EXECUTED_ALU1_PS_UTILIZATION"
+    },
+    {
+     "refId": "I",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_INST_EXECUTED_ALU1_ASYNC_CS_UTILIZATION\", device=~\"$device\"}",
+     "legendFormat": "XVE_INST_EXECUTED_ALU1_ASYNC_CS_UTILIZATION"
+    },
+    {
+     "refId": "J",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_INST_EXECUTED_ALU1_CS_UTILIZATION\", device=~\"$device\"}",
+     "legendFormat": "XVE_INST_EXECUTED_ALU1_CS_UTILIZATION"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "min": 0,
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "fillOpacity": 8,
+      "showPoints": "never",
+      "spanNulls": true
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "max": 100
+    },
+    "overrides": []
+   }
+  },
+  {
+   "title": "Levels 3",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 14,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_THREADS_OCCUPANCY_ALL\", device=~\"$device\"}",
+     "legendFormat": "XVE_THREADS_OCCUPANCY_ALL"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_STALL_ALUWR\", device=~\"$device\"}",
+     "legendFormat": "XVE_STALL_ALUWR"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_STALL_BARRIER\", device=~\"$device\"}",
+     "legendFormat": "XVE_STALL_BARRIER"
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_STALL_CONTROL\", device=~\"$device\"}",
+     "legendFormat": "XVE_STALL_CONTROL"
+    },
+    {
+     "refId": "E",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_STALL_INSTFETCH\", device=~\"$device\"}",
+     "legendFormat": "XVE_STALL_INSTFETCH"
+    },
+    {
+     "refId": "F",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_STALL_OTHER\", device=~\"$device\"}",
+     "legendFormat": "XVE_STALL_OTHER"
+    },
+    {
+     "refId": "G",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_STALL_PIPESTALL\", device=~\"$device\"}",
+     "legendFormat": "XVE_STALL_PIPESTALL"
+    },
+    {
+     "refId": "H",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_STALL_PS_DEPENDENCY\", device=~\"$device\"}",
+     "legendFormat": "XVE_STALL_PS_DEPENDENCY"
+    },
+    {
+     "refId": "I",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_STALL_SBID\", device=~\"$device\"}",
+     "legendFormat": "XVE_STALL_SBID"
+    },
+    {
+     "refId": "J",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_STALL_SENDWR\", device=~\"$device\"}",
+     "legendFormat": "XVE_STALL_SENDWR"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "min": 0,
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 1,
+      "fillOpacity": 8,
+      "showPoints": "never",
+      "spanNulls": true
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "max": 100
+    },
+    "overrides": []
+   }
+  }
+ ]
+}
