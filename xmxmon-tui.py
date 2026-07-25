@@ -36,18 +36,20 @@ def post(path, obj):
 def menu_screen(snap, menu, width):
     """Full-screen picker for the [g] group switch.
 
-    Two stages: choose a device (skipped when only one), then choose the group.
-    The current group is marked; a final "apply to ALL devices" item (shown
-    only with more than one device) sets every card to the next group picked.
-    Items are lettered so the list can exceed nine entries.
+    Two stages: choose a device, then choose the group. The device stage is
+    skipped when there is only one device, and lists "apply to all devices" as
+    its first entry — picking it sets every card to the next group chosen. The
+    current group is marked in the group stage. Items are lettered so the list
+    can exceed nine entries.
     """
     devs = sorted(snap.items())
     lines = ["\x1b[H\x1b[2Jxmxmon — switch metric group      "
              "[letter] select   [Esc] cancel", ""]
     if menu["stage"] == "dev":
         lines.append(" choose device:")
+        lines.append("   a)  apply to ALL devices")
         for i, (dev, s) in enumerate(devs):
-            lines.append(f"   {chr(97 + i)})  device {dev}    "
+            lines.append(f"   {chr(98 + i)})  device {dev}    "
                          f"(now: {s.get('group', '?')})")
     else:
         dev = menu["dev"]
@@ -59,8 +61,6 @@ def menu_screen(snap, menu, width):
         for i, g in enumerate(sw):
             mark = "*" if (not allmode and g == s.get("group")) else " "
             lines.append(f"   {chr(97 + i)}) {mark} {g}")
-        if not allmode and len(devs) > 1:
-            lines.append(f"   {chr(97 + len(sw))})    → apply to ALL devices")
         if not allmode and s.get("capture"):
             lines.append("")
             lines.append(" note: this device is CAPTURING — switch refused "
@@ -294,24 +294,23 @@ def main():
                             devs = sorted(snap.items())
                             idx = ord(ch.lower()) - 97
                             if menu["stage"] == "dev":
-                                if 0 <= idx < len(devs):
-                                    menu = {"stage": "grp", "dev": devs[idx][0],
-                                            "all": False}
+                                if idx == 0:            # a) apply to all
+                                    menu = {"stage": "grp", "dev": devs[0][0],
+                                            "all": True}
+                                elif 1 <= idx <= len(devs):
+                                    menu = {"stage": "grp",
+                                            "dev": devs[idx - 1][0], "all": False}
                             else:
                                 sw = snap.get(menu["dev"], {}).get("switchable") or []
-                                if menu.get("all"):
-                                    if 0 <= idx < len(sw):
+                                if 0 <= idx < len(sw):
+                                    if menu.get("all"):
                                         for d, _ in devs:
                                             post("/group", {"device": int(d),
                                                             "group": sw[idx]})
-                                        menu = None
-                                elif 0 <= idx < len(sw):
-                                    post("/group", {"device": int(menu["dev"]),
-                                                    "group": sw[idx]})
+                                    else:
+                                        post("/group", {"device": int(menu["dev"]),
+                                                        "group": sw[idx]})
                                     menu = None
-                                elif idx == len(sw) and len(devs) > 1:
-                                    menu = {"stage": "grp", "dev": menu["dev"],
-                                            "all": True}
                         break
                     if ch == "q":
                         return

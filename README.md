@@ -188,8 +188,8 @@ groups:
 
 **Switch on the fly.** You don't have to edit the config and restart to change
 lens. The web UI has a group dropdown in each device header; the TUI's `g` key
-opens a picker (choose device, then group, with an "apply to all devices" entry
-at the end). Both hit `POST /group`. The change is in-memory only, so the next
+opens a picker: choose the device — with "apply to all devices" as the first
+entry — then the group. Both hit `POST /group`. The change is in-memory only, so the next
 daemon start returns to whatever `xmxmon.yaml` specifies. Two caveats, both from
 the hardware: counters are device-wide, so the switch affects **every** viewer of
 that GPU, not just you; and it is refused while that device is capturing (stop the

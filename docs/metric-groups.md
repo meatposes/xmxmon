@@ -65,8 +65,9 @@ groups first); `UNSWITCHABLE_GROUPS` (`EuStallSampling`, `TestOa`) are filtered
 out because they need a different Level Zero mechanism. A switch to a group with
 no profile still works — `derive`/`view` fall back to the VectorEngineProfile
 profile, so the curated ratios mostly drop out but the raw counters and any
-shared metrics (GPU busy, VRAM bytes) still render. The TUI picker also offers an
-"apply to all devices" entry that sets every card to the next group chosen.
+shared metrics (GPU busy, VRAM bytes) still render. The TUI picker lists devices with
+"apply to all devices" as the first entry; choosing it sets every card to the
+next group picked.
 
 ## The profile format (`xmxderive.py`)
 
