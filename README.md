@@ -204,6 +204,13 @@ mechanism, not the time-based streamer, and would fail to open. A group without 
 curated view (e.g. `RenderBasic`) still samples fine; its metrics show through the
 default view and the raw-counter panel, just without a purpose-built layout.
 
+When you switch **all** devices at once, only groups common to every card are
+offered; a group unique to one card is struck through (TUI) or disabled (web UI,
+while "sync all" is checked), so a mixed-architecture fleet can never be sent a
+group one of its cards lacks. Per-device selection still offers each card's full
+set, and the daemon validates every switch against the target device's own list
+regardless.
+
 Everything downstream keys off the active group automatically. `xmx-summary.py`
 detects the group from a capture's columns, so offline analysis needs no flag.
 There is nothing to configure beyond the group itself; a metric absent from the
@@ -353,8 +360,9 @@ those, and local edits there are exactly what `git pull` will fight with.
 ## Limits
 
 - **One metric group per device at a time.** That's a hardware constraint, not a
-  tool limitation. Sampling `MemoryProfile` or `VectorEngineStalls` means a separate
-  run.
+  tool limitation. To see another group on a device, switch it (config, or
+  `POST /group` / the TUI and web UI pickers at runtime) — you can't sample two at
+  once. To compare two groups simultaneously, put them on two different devices.
 - **One streamer per device.** While the daemon is running it owns the device's
   counters; stop it before running the standalone CLI against the same GPU.
 - **Counters are device-wide.** Two workloads sharing a GPU are summed together.
