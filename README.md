@@ -209,10 +209,13 @@ detects the group from a capture's columns, so offline analysis needs no flag.
 There is nothing to configure beyond the group itself; a metric absent from the
 active group is skipped rather than shown as zero.
 
-Each group has an import-ready dashboard next to the default one:
-`grafana-dashboard.json` (VectorEngineProfile), `grafana-dashboard-compute.json`,
-`grafana-dashboard-memory.json`, and `grafana-dashboard-cache.json`. They read
-the same generic `xmxmon_*` series, so enabling the exporter is all it takes.
+Each profiled group has a hand-built, import-ready dashboard next to the default
+one: `grafana-dashboard.json` (VectorEngineProfile), `grafana-dashboard-compute.json`,
+`grafana-dashboard-memory.json`, and `grafana-dashboard-cache.json`. Every other
+switchable group (stalls, render, depth, RT, …) has an **auto-generated**
+`grafana-dashboard-<group>.json` built straight from its metric list — functional
+(hero, levels, bandwidth, counters), just not hand-tuned. All read the same
+generic `xmxmon_*` series, so enabling the exporter is all it takes.
 
 Adding a fourth view is a data change, not a code change — see
 [`docs/metric-groups.md`](docs/metric-groups.md) for the profile format.
