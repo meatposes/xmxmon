@@ -21,6 +21,12 @@
   .devhead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
              margin-bottom: 10px; }
   .devhead h2 { font-size: 15px; font-weight: 600; }
+  .devhead .grpsel { font-size: 12px; color: var(--s4); font-weight: 600;
+    background: var(--surface); border: 1px solid var(--grid); border-radius: 5px;
+    padding: 3px 6px; cursor: pointer; }
+  .devhead .synclbl { font-size: 12px; color: var(--ink-2); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 4px; user-select: none; }
+  .devhead .synclbl input { cursor: pointer; }
   .cap { font-size: 12px; color: var(--ink-2); }
   .cap.active { color: var(--s4); }
   .tiles { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -69,43 +75,56 @@
 </head>
 <body>
 <h1>xmxmon</h1>
-<div class="sub">Intel Arc XMX / utilization observer — live via SSE</div>
+<div class="sub">Intel Arc XMX / utilization observer — live via SSE. Panels follow
+  each device's active metric group.</div>
 <div id="devices"></div>
 <div class="tip" id="tip"></div>
 <script>
 "use strict";
 const PAL = ["#3987e5","#d95926","#199e70","#c98500","#d55181","#008300","#9085e9","#e66767"];
-// Fixed series->slot assignment (never re-ordered at runtime):
-const CHARTS = [
-  { id:"xmx", title:"XMX instructions / s", kind:"rates", fmt:fmtSI,
-    series:[["XVE_INST_EXECUTED_XMX_INT2","INT2",0],
-            ["XVE_INST_EXECUTED_XMX_INT4","INT4",1],
-            ["XVE_INST_EXECUTED_XMX_INT8","INT8",2],
-            ["XVE_INST_EXECUTED_XMX_FP16","FP16",3],
-            ["XVE_INST_EXECUTED_XMX_BF16","BF16",4]] },
-  { id:"util", title:"Utilization %", kind:"gauges", fmt:v=>v.toFixed(0)+"%", max:100,
-    series:[["GPU_BUSY","GPU busy",0],["XVE_ACTIVE","XVE active",1],
-            ["XVE_THREADS_OCCUPANCY_ALL","Occupancy",2]] },
-  { id:"mem", title:"Memory bandwidth GB/s", kind:"rates", fmt:v=>v.toFixed(0),
-    scale:1e-9,
-    series:[["GPU_MEMORY_BYTE_READ","read",0],["GPU_MEMORY_BYTE_WRITE","write",1]] },
-];
-const WINDOW_S = 120, hist = {};   // dev -> [{t, chartId -> [v,...]}]
+// The chart/tile layout is no longer hardcoded: the daemon sends a per-device
+// `view` describing which series to plot for whichever metric group that device
+// samples. This file only knows how to render a spec, never what the groups are.
+const WINDOW_S = 120, hist = {}, VIEW = {}, GROUP = {};  // dev -> points / view / group
+let linkAll = false, COMMON = [];   // "sync all" + groups common to every device
+function commonGroups(all){
+  const lists=Object.values(all).map(s=>s.switchable||[]);
+  if(!lists.length) return [];
+  return lists[0].filter(g=>lists.every(l=>l.includes(g)));
+}
+function refreshSyncDisabled(){   // grey groups a card lacks while syncing all
+  document.querySelectorAll(".grpsel").forEach(sel=>{
+    for(const o of sel.options) o.disabled = linkAll && !COMMON.includes(o.value);
+  });
+}
 function fmtSI(v){ if(v>=1e12)return (v/1e12).toFixed(1)+"T";
   if(v>=1e9)return (v/1e9).toFixed(1)+"G"; if(v>=1e6)return (v/1e6).toFixed(1)+"M";
   if(v>=1e3)return (v/1e3).toFixed(1)+"k"; return v.toFixed(0); }
+function fmtOf(name){                       // chart y-axis / hover formatter
+  if(name==="pct") return v=>v.toFixed(0)+"%";
+  if(name==="num") return v=>v.toFixed(0);
+  return fmtSI;                             // "si" (default)
+}
 
-function ensureDevice(dev){
+function ensureDevice(dev, view, group, switchable){
   if(document.getElementById("dev"+dev)) return;
+  VIEW[dev] = view;
+  const charts = view.charts || [];
+  const opts=(switchable||[group]).map(g=>
+    `<option value="${g}"${g===group?" selected":""}>${g}</option>`).join("");
   const el=document.createElement("div"); el.className="device"; el.id="dev"+dev;
   el.innerHTML=`<div class="devhead"><h2>device ${dev}</h2>
+      <select class="grpsel" id="grp${dev}" onchange="switchGroup('${dev}',this.value)"
+        title="switch this GPU's metric group — device-wide, reverts to config on restart">${opts}</select>
+      <label class="synclbl" title="when checked, the group dropdown changes every GPU at once"><input
+        type="checkbox" class="syncbox"${linkAll?" checked":""} onchange="setLink(this.checked)">sync all</label>
       <span class="cap" id="cap${dev}">idle</span></div>
     <div class="tiles" id="tiles${dev}"></div>
-    <div class="charts">${CHARTS.map(c=>`
+    <div class="charts">${charts.map(c=>`
       <div class="chart"><h3>${c.title}</h3>
         <canvas id="cv-${dev}-${c.id}"></canvas>
         <div class="legend">${c.series.map(s=>
-          `<span style="--c:${PAL[s[2]]}">${s[1]}</span>`).join("")}</div>
+          `<span style="--c:${PAL[s[2]%PAL.length]}">${s[1]}</span>`).join("")}</div>
       </div>`).join("")}</div>
     <div class="detail" id="detail${dev}" hidden></div>
     <div class="ctl">
@@ -115,9 +134,13 @@ function ensureDevice(dev){
       <button class="stop" onclick="stopCap(${dev})">stop</button>
       <button class="ghost" id="dbtn${dev}" onclick="toggleDetail(${dev})">show detail</button>
     </div>`;
-  document.getElementById("devices").appendChild(el);
+  // Insert in device-index order so a rebuild (e.g. after a group switch)
+  // never reorders the cards.
+  const cont=document.getElementById("devices");
+  const after=[...cont.children].find(c=>parseInt(c.id.slice(3),10)>parseInt(dev,10));
+  cont.insertBefore(el, after||null);
   hist[dev]=[];
-  for(const c of CHARTS){
+  for(const c of charts){
     const cv=document.getElementById(`cv-${dev}-${c.id}`);
     cv.onmousemove=e=>hover(e,dev,c); cv.onmouseleave=()=>tip.style.display="none";
   }
@@ -129,24 +152,13 @@ function toggleDetail(dev){
   document.getElementById("dbtn"+dev).textContent =
     detailOn[dev] ? "hide detail" : "show detail";
 }
-const RAW_GROUPS = [
-  ["operand prep", ["XVE_INST_EXECUTED_BITCONV","XVE_INST_EXECUTED_INT16",
-    "XVE_INST_EXECUTED_INT32","XVE_INST_EXECUTED_FP16","XVE_INST_EXECUTED_FP32",
-    "XVE_INST_EXECUTED_MATH"]],
-  ["matrix engine", ["XVE_INST_EXECUTED_XMX_INT2","XVE_INST_EXECUTED_XMX_INT4",
-    "XVE_INST_EXECUTED_XMX_INT8","XVE_INST_EXECUTED_XMX_FP16",
-    "XVE_INST_EXECUTED_XMX_BF16"]],
-  ["memory", ["GPU_MEMORY_BYTE_READ","GPU_MEMORY_BYTE_WRITE","L3_HIT","L3_MISS",
-    "TLB_MISS"]],
-  ["dispatch", ["COMMAND_PARSER_COMPUTE_ENGINE_DISPATCH_KERNEL_COUNT",
-    "GPGPU_THREADGROUP_COUNT","XVE_INST_EXECUTED_BARRIER",
-    "XVE_INST_EXECUTED_CONTROL_ALL"]],
-];
 function fmtD(v,u){
   if(v===null||v===undefined) return "—";
   if(u==="%") return v.toFixed(1)+"%";
   if(u==="x") return v.toFixed(2)+"x";
   if(u==="/s") return fmtSI(v)+"/s";
+  if(u==="B/s") return (v/1e9>=0.1? (v/1e9).toFixed(1)+" GB/s"
+                                  : (v/1e6).toFixed(0)+" MB/s");
   return Math.abs(v)<100 ? v.toFixed(3) : fmtSI(v);
 }
 function renderDetail(dev,snap){
@@ -159,8 +171,9 @@ function renderDetail(dev,snap){
        <span class="n">${x.note||""}</span></div>`).join("")
     : `<h4>Overhead</h4><div class="n">no derived metrics for this metric group</div>`;
   const src={...(snap.rates||{}),...(snap.gauges||{})};
+  const groups=(snap.view&&snap.view.raw_groups)||[];
   let raw="";
-  for(const [g,keys] of RAW_GROUPS){
+  for(const [g,keys] of groups){
     const present=keys.filter(k=>k in src);
     if(!present.length) continue;
     raw+=`<div class="rawgrp">${g}</div>`+present.map(k=>
@@ -178,29 +191,42 @@ async function startCap(dev){
 async function stopCap(dev){
   await fetch("/capture/stop",{method:"POST",body:JSON.stringify({device:dev})});
 }
+function setLink(v){            // keep every device's checkbox in lockstep
+  linkAll=v;
+  document.querySelectorAll(".syncbox").forEach(c=>{c.checked=v;});
+  refreshSyncDisabled();
+}
+async function switchGroup(dev,group){
+  // daemon keys devices by int; when synced, change every GPU at once
+  const targets = linkAll ? Object.keys(GROUP) : [dev];
+  await Promise.all(targets.map(d=>fetch("/group",
+    {method:"POST",body:JSON.stringify({device:+d,group})})));
+}
 
 function draw(dev){
   const H=hist[dev]; if(!H.length) return;
+  const charts=(VIEW[dev]&&VIEW[dev].charts)||[];
   const t1=H[H.length-1].t, t0=t1-WINDOW_S;
-  for(const c of CHARTS){
-    const cv=document.getElementById(`cv-${dev}-${c.id}`);
+  for(const c of charts){
+    const cv=document.getElementById(`cv-${dev}-${c.id}`); if(!cv) continue;
     const w=cv.clientWidth, h=cv.clientHeight;
     if(cv.width!==w*devicePixelRatio){cv.width=w*devicePixelRatio;cv.height=h*devicePixelRatio;}
     const g=cv.getContext("2d"); g.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
     g.clearRect(0,0,w,h);
+    const fmt=fmtOf(c.fmt);
     let max=c.max||0;
     if(!c.max) for(const p of H) for(let i=0;i<c.series.length;i++)
-      max=Math.max(max,p[c.id][i]||0);
+      max=Math.max(max,(p[c.id]||[])[i]||0);
     if(max<=0) max=1;
     g.strokeStyle="#33322f"; g.lineWidth=1; g.beginPath();          // grid
     for(let i=1;i<4;i++){const y=h*i/4; g.moveTo(0,y); g.lineTo(w,y);} g.stroke();
     g.fillStyle="#6e6b66"; g.font="10px system-ui";
-    g.fillText(c.fmt(max*(c.scale||1)),4,10);
+    g.fillText(fmt(max*(c.scale||1)),4,10);
     for(let i=0;i<c.series.length;i++){
-      g.strokeStyle=PAL[c.series[i][2]]; g.lineWidth=2; g.beginPath();
+      g.strokeStyle=PAL[c.series[i][2]%PAL.length]; g.lineWidth=2; g.beginPath();
       let started=false;
       for(const p of H){
-        const x=(p.t-t0)/WINDOW_S*w, y=h-(p[c.id][i]||0)/max*(h-14)-2;
+        const x=(p.t-t0)/WINDOW_S*w, y=h-((p[c.id]||[])[i]||0)/max*(h-14)-2;
         if(!started){g.moveTo(x,y);started=true;} else g.lineTo(x,y);
       }
       g.stroke();
@@ -214,36 +240,53 @@ function hover(e,dev,c){
   const cv=e.target, r=cv.getBoundingClientRect();
   const t=cv._t0+(e.clientX-r.left)/r.width*WINDOW_S;
   let best=H[0]; for(const p of H) if(Math.abs(p.t-t)<Math.abs(best.t-t)) best=p;
+  const fmt=fmtOf(c.fmt);
   tip.innerHTML=c.series.map((s,i)=>
-    `<span style="color:${PAL[s[2]]}">●</span> ${s[1]}: ${c.fmt((best[c.id][i]||0)*(c.scale||1))}`
+    `<span style="color:${PAL[s[2]%PAL.length]}">●</span> ${s[1]}: ${fmt(((best[c.id]||[])[i]||0)*(c.scale||1))}`
   ).join("<br>");
   tip.style.display="block"; tip.style.left=(e.clientX+14)+"px";
   tip.style.top=(e.clientY+8)+"px";
 }
 
-function tiles(dev,snap){
+function tileValue(t,snap){
   const g=snap.gauges||{}, rt=snap.rates||{};
-  const xmxTop=Math.max(rt.XVE_INST_EXECUTED_XMX_INT8||0,
-    rt.XVE_INST_EXECUTED_XMX_FP16||0, rt.XVE_INST_EXECUTED_XMX_INT2||0,
-    rt.XVE_INST_EXECUTED_XMX_INT4||0, rt.XVE_INST_EXECUTED_XMX_BF16||0);
-  const items=[["GPU busy",(g.GPU_BUSY||0).toFixed(0)+"%"],
-    ["XVE active",(g.XVE_ACTIVE||0).toFixed(1)+"%"],
-    ["XMX peak",fmtSI(xmxTop)+"/s"],
-    ["Mem read",((rt.GPU_MEMORY_BYTE_READ||0)/1e9).toFixed(0)+" GB/s"],
-    ["Freq",(g.AvgGpuCoreFrequencyMHz||0).toFixed(0)+" MHz"]];
-  document.getElementById("tiles"+dev).innerHTML=items.map(([l,v])=>
-    `<div class="tile"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+  switch(t.kind){
+    case "pct":  return (g[t.key]||0).toFixed(0)+"%";
+    case "pct1": return (g[t.key]||0).toFixed(1)+"%";
+    case "rate": return fmtSI(rt[t.key]||0)+"/s";
+    case "gbps": return ((rt[t.key]||0)/1e9).toFixed(0)+" GB/s";
+    case "tx64gbps": return ((rt[t.key]||0)*64/1e9).toFixed(0)+" GB/s";
+    case "freq": return (g[t.key]||0).toFixed(0)+" MHz";
+    case "ratemax": return fmtSI(Math.max(0,...t.keys.map(k=>rt[k]||0)))+"/s";
+    default: return "—";
+  }
+}
+function tiles(dev,snap){
+  const spec=(snap.view&&snap.view.tiles)||[];
+  document.getElementById("tiles"+dev).innerHTML=spec.map(t=>
+    `<div class="tile"><div class="v">${tileValue(t,snap)}</div>
+       <div class="l">${t.label}</div></div>`).join("");
 }
 
 const es=new EventSource("/events");
 es.onmessage=ev=>{
   const all=JSON.parse(ev.data), now=Date.now()/1000;
+  COMMON=commonGroups(all);
   for(const [dev,snap] of Object.entries(all)){
-    ensureDevice(dev);
+    if(!snap.view) continue;               // no aggregate yet
+    // A runtime group switch changes the whole panel layout; tear down and
+    // rebuild this device when its group changes under us.
+    if(GROUP[dev]!==undefined && GROUP[dev]!==snap.group){
+      const old=document.getElementById("dev"+dev); if(old) old.remove();
+      delete hist[dev]; delete VIEW[dev];
+    }
+    GROUP[dev]=snap.group;
+    ensureDevice(dev,snap.view,snap.group,snap.switchable);
+    const charts=snap.view.charts||[];
     const point={t:now};
-    for(const c of CHARTS){
+    for(const c of charts){
       const src=snap[c.kind]||{};
-      point[c.id]=c.series.map(s=>(src[s[0]]||0)*(c.scale?1:1));
+      point[c.id]=c.series.map(s=>src[s[0]]||0);
     }
     hist[dev].push(point);
     while(hist[dev].length&&hist[dev][0].t<now-WINDOW_S) hist[dev].shift();
@@ -255,6 +298,7 @@ es.onmessage=ev=>{
     else {cap.textContent="idle";cap.className="cap";}
     draw(dev);
   }
+  refreshSyncDisabled();   // apply greying to any newly-built dropdowns
 };
 </script>
 </body>

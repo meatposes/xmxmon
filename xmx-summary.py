@@ -41,7 +41,7 @@ def fmt(value, unit):
     return f"{value:10.4g} "
 
 
-def detailed_section(busy, elapsed_s):
+def detailed_section(busy, elapsed_s, group):
     """Derived overhead metrics over the busy portion of a capture."""
     cols = busy[0].keys()
     totals = {c: sum(float(r.get(c) or 0) for r in busy)
@@ -57,7 +57,7 @@ def detailed_section(busy, elapsed_s):
             totals[c] = totals[c] / elapsed_s
 
     print("\n--- overhead (derived) ---")
-    derived = xmxderive.derive(totals)
+    derived = xmxderive.derive(totals, group)
     if not derived:
         print("no derived metrics available for this metric group")
     for label, value, unit, note in derived:
@@ -65,8 +65,8 @@ def detailed_section(busy, elapsed_s):
         print(f"{label:26s} {fmt(value, unit)}{suffix}")
 
     print(f"\n--- raw counters (total over {elapsed_s:.1f}s busy; rate in parens) ---")
-    for group, items in xmxderive.raw_rows(raw_totals):
-        print(f"  {group}:")
+    for section, items in xmxderive.raw_rows(raw_totals, group):
+        print(f"  {section}:")
         for k, val in items:
             print(f"    {k:52s} {si(val)}  ({si(val / elapsed_s)}/s)")
 
@@ -76,7 +76,9 @@ def main(path, detailed=False):
     if not rows:
         print("empty capture"); return 1
     cols = rows[0].keys()
+    group = xmxderive.detect_group(cols)
     busy = [r for r in rows if float(r.get("GPU_BUSY", 0) or 0) > 1.0]
+    print(f"detected metric group: {group}")
     print(f"{len(rows)} reports total, {len(busy)} with GPU_BUSY > 1% "
           f"(stats below are over busy reports only)")
     if not busy:
@@ -87,18 +89,21 @@ def main(path, detailed=False):
         vs = [float(r[c] or 0) for r in busy]
         return sum(vs), sum(vs) / len(vs), max(vs)
 
-    print("\n--- XMX (matrix engine) ---")
-    any_xmx = False
-    for c in XMX:
-        if c not in cols:
-            continue
-        total, avg, peak = stats(c)
-        mark = "  <-- ACTIVE" if total > 0 else ""
-        if total > 0:
-            any_xmx = True
-        print(f"{c:36s} total {total:12.4g}  avg {avg:10.4g}  peak {peak:10.4g}{mark}")
-    print("\nVERDICT: XMX " + ("IS being used (see precisions above)"
-                               if any_xmx else "NOT used — pure vector/ALU workload"))
+    # The XMX verdict only means something for the VectorEngineProfile group,
+    # which is the only one carrying the per-precision matrix-engine counters.
+    if any(c in cols for c in XMX):
+        print("\n--- XMX (matrix engine) ---")
+        any_xmx = False
+        for c in XMX:
+            if c not in cols:
+                continue
+            total, avg, peak = stats(c)
+            mark = "  <-- ACTIVE" if total > 0 else ""
+            if total > 0:
+                any_xmx = True
+            print(f"{c:36s} total {total:12.4g}  avg {avg:10.4g}  peak {peak:10.4g}{mark}")
+        print("\nVERDICT: XMX " + ("IS being used (see precisions above)"
+                                   if any_xmx else "NOT used — pure vector/ALU workload"))
 
     print("\n--- utilization ---")
     for c in KEY:
@@ -109,7 +114,7 @@ def main(path, detailed=False):
 
     if detailed:
         ts = [float(r["t_s"]) for r in busy]
-        detailed_section(busy, max(ts) - min(ts) or 1.0)
+        detailed_section(busy, max(ts) - min(ts) or 1.0, group)
     else:
         print("\n(run with --detailed for operand-prep cost, cache and "
               "dispatch overhead)")

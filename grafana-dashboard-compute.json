@@ -1,0 +1,811 @@
+{
+ "title": "xmxmon \u2014 ComputeBasic",
+ "uid": "xmxmon-compute",
+ "timezone": "",
+ "refresh": "5s",
+ "schemaVersion": 39,
+ "graphTooltip": 1,
+ "time": {
+  "from": "now-15m",
+  "to": "now"
+ },
+ "templating": {
+  "list": [
+   {
+    "name": "DS",
+    "label": "Prometheus",
+    "type": "datasource",
+    "query": "prometheus",
+    "refresh": 1,
+    "current": {},
+    "hide": 0
+   },
+   {
+    "name": "device",
+    "label": "GPU device",
+    "type": "query",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "${DS}"
+    },
+    "query": {
+     "query": "label_values(xmxmon_gauge, device)",
+     "refId": "StandardVariableQuery"
+    },
+    "includeAll": true,
+    "multi": true,
+    "allValue": ".*",
+    "current": {
+     "text": [
+      "All"
+     ],
+     "value": [
+      "$__all"
+     ]
+    },
+    "refresh": 2,
+    "sort": 1,
+    "hide": 0
+   }
+  ]
+ },
+ "panels": [
+  {
+   "title": "At a glance",
+   "type": "row",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "title": "GPU busy",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 1,
+    "w": 6,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"GPU_BUSY\", device=~\"$device\"}",
+     "legendFormat": "dev{{device}}"
+    }
+   ],
+   "options": {
+    "graphMode": "area",
+    "colorMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 40
+       },
+       {
+        "color": "orange",
+        "value": 90
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "title": "XVE active",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 6,
+    "y": 1,
+    "w": 6,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_ACTIVE\", device=~\"$device\"}",
+     "legendFormat": "dev{{device}}"
+    }
+   ],
+   "options": {
+    "graphMode": "area",
+    "colorMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 40
+       },
+       {
+        "color": "orange",
+        "value": 90
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "title": "VRAM read BW",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 1,
+    "w": 6,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"GPU_MEMORY_BYTE_READ\", device=~\"$device\"}",
+     "legendFormat": "dev{{device}}"
+    }
+   ],
+   "options": {
+    "graphMode": "area",
+    "colorMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "title": "Dispatch overhead",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 18,
+    "y": 1,
+    "w": 6,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"GPGPU_DISPATCH\", device=~\"$device\"}",
+     "legendFormat": "dev{{device}}"
+    }
+   ],
+   "options": {
+    "graphMode": "area",
+    "colorMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 5
+       },
+       {
+        "color": "red",
+        "value": 20
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "title": "Compute",
+   "type": "row",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 5,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "title": "Utilization %",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 6,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"GPU_BUSY\", device=~\"$device\"}",
+     "legendFormat": "GPU busy"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_ACTIVE\", device=~\"$device\"}",
+     "legendFormat": "XVE active"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_THREADS_OCCUPANCY_ALL\", device=~\"$device\"}",
+     "legendFormat": "occupancy"
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"XVE_STALL\", device=~\"$device\"}",
+     "legendFormat": "XVE stall"
+    },
+    {
+     "refId": "E",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"GPGPU_DISPATCH\", device=~\"$device\"}",
+     "legendFormat": "dispatch"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "min": 0,
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 8,
+      "showPoints": "never",
+      "spanNulls": true
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "max": 100
+    },
+    "overrides": []
+   },
+   "description": "XVE stall rising while busy stays high = the XVEs are fed but waiting on memory."
+  },
+  {
+   "title": "Cache hit rates %",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 6,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_derived{metric=\"l1_hit_rate\", device=~\"$device\"}",
+     "legendFormat": "L1 hit"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_derived{metric=\"l3_hit_rate\", device=~\"$device\"}",
+     "legendFormat": "L3 hit"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "min": 0,
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 8,
+      "showPoints": "never",
+      "spanNulls": true
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "max": 100
+    },
+    "overrides": []
+   },
+   "description": "Falling hit rates push traffic down to VRAM (next row)."
+  },
+  {
+   "title": "Memory tiers",
+   "type": "row",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 14,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "title": "VRAM bandwidth",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 15,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"GPU_MEMORY_BYTE_READ\", device=~\"$device\"}",
+     "legendFormat": "read"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"GPU_MEMORY_BYTE_WRITE\", device=~\"$device\"}",
+     "legendFormat": "write"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps",
+     "min": 0,
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 18,
+      "showPoints": "never",
+      "spanNulls": true,
+      "stacking": {
+       "mode": "normal",
+       "group": "A"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     }
+    },
+    "overrides": []
+   },
+   "description": "Device-local HBM/GDDR traffic."
+  },
+  {
+   "title": "PCIe & sysmem",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 8,
+    "y": 15,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"HOST_TO_GPUMEM_TRANSACTION_READ\", device=~\"$device\"} * 64",
+     "legendFormat": "host\u2192gpu rd"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"HOST_TO_GPUMEM_TRANSACTION_WRITE\", device=~\"$device\"} * 64",
+     "legendFormat": "host\u2192gpu wr"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"SYSMEM_TRANSACTION_READ\", device=~\"$device\"} * 64",
+     "legendFormat": "sysmem rd"
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"SYSMEM_TRANSACTION_WRITE\", device=~\"$device\"} * 64",
+     "legendFormat": "sysmem wr"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps",
+     "min": 0,
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 8,
+      "showPoints": "never",
+      "spanNulls": true
+     },
+     "color": {
+      "mode": "palette-classic"
+     }
+    },
+    "overrides": []
+   },
+   "description": "Off-card traffic: weight/KV upload downstream, readback upstream."
+  },
+  {
+   "title": "L1 / SLM bytes",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 16,
+    "y": 15,
+    "w": 8,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"LOAD_STORE_CACHE_BYTE_READ\", device=~\"$device\"}",
+     "legendFormat": "L1 read"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"LOAD_STORE_CACHE_BYTE_WRITE\", device=~\"$device\"}",
+     "legendFormat": "L1 write"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"SLM_BYTE_READ\", device=~\"$device\"}",
+     "legendFormat": "SLM read"
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"SLM_BYTE_WRITE\", device=~\"$device\"}",
+     "legendFormat": "SLM write"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "Bps",
+     "min": 0,
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 8,
+      "showPoints": "never",
+      "spanNulls": true
+     },
+     "color": {
+      "mode": "palette-classic"
+     }
+    },
+    "overrides": []
+   }
+  },
+  {
+   "title": "Dispatch",
+   "type": "row",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 23,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "title": "Kernel & threadgroup dispatch",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 24,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"COMMAND_PARSER_COMPUTE_ENGINE_DISPATCH_KERNEL_COUNT\", device=~\"$device\"}",
+     "legendFormat": "kernels"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"GPGPU_THREADGROUP_COUNT\", device=~\"$device\"}",
+     "legendFormat": "threadgroups"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "cps",
+     "min": 0,
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 8,
+      "showPoints": "never",
+      "spanNulls": true
+     },
+     "color": {
+      "mode": "palette-classic"
+     }
+    },
+    "overrides": []
+   },
+   "description": "Launch rate; high with low busy = launch-bound."
+  },
+  {
+   "title": "Send-pipe pressure %",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 24,
+    "w": 12,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_derived{metric=\"send_per_issued\", device=~\"$device\"}",
+     "legendFormat": "send / issued"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "min": 0,
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 8,
+      "showPoints": "never",
+      "spanNulls": true
+     },
+     "color": {
+      "mode": "palette-classic"
+     }
+    },
+    "overrides": []
+   },
+   "description": "Share of issue slots spent on load/store messages."
+  }
+ ]
+}

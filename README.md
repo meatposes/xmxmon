@@ -160,6 +160,63 @@ say, 8-bit activations against 2-bit weights increments the INT8 counter, not IN
 So `XMX_INT2` staying at zero does not mean 2-bit data never reached the matrix
 engine — reaching that counter requires *both* operands to be 2-bit.
 
+## Metric groups
+
+`VectorEngineProfile` answers "is the matrix engine being used, and how
+efficiently" — but a device exposes a dozen groups (`xmxmon --list`), and only
+one can be sampled at a time. Three of them profile a compute workload from
+angles the XMX counters can't see, and xmxmon now ships a matched view for each:
+the TUI hero column, the web-UI tiles and charts, the `--detailed` overhead
+ratios, and a Grafana dashboard all follow whichever group a device samples.
+
+| Group | Answers | Highlights |
+|---|---|---|
+| `VectorEngineProfile` | matrix-engine use and operand-prep tax | XMX per precision, prep/XMX, arithmetic intensity |
+| `ComputeBasic` | where the whole pipeline spends time | XVE pipes + L1/L3 hit rates + VRAM + PCIe/sysmem + dispatch, all at once |
+| `MemoryProfile` | the memory subsystem in depth (the decode bottleneck) | read/write bandwidth, **32B-vs-64B coalescing**, L3 flow-control saturation, copy engine |
+| `DeviceCacheProfile` | L3 behaviour and **who drives it** | L3 reads attributed to load/store vs instruction vs sampler, and the VRAM traffic behind misses |
+
+Select per device in `xmxmon.yaml` — the `group:` default plus an optional
+`groups:` map that overrides individual cards, so one GPU can report XMX while
+another reports memory or cache:
+
+```yaml
+group: VectorEngineProfile
+groups:
+  1: MemoryProfile        # device 1 samples the memory subsystem instead
+```
+
+**Switch on the fly.** You don't have to edit the config and restart to change
+lens. The web UI has a group dropdown in each device header, with a "sync all"
+checkbox beside it — check it (it links across every card) and a dropdown change
+switches all GPUs at once. The TUI's `g` key
+opens a picker: choose the device — with "apply to all devices" as the first
+entry — then the group. Both hit `POST /group`. The change is in-memory only, so the next
+daemon start returns to whatever `xmxmon.yaml` specifies. Two caveats, both from
+the hardware: counters are device-wide, so the switch affects **every** viewer of
+that GPU, not just you; and it is refused while that device is capturing (stop the
+capture first, so the ndjson keeps a single schema).
+
+The picker offers **every group the device exposes** (the daemon enumerates them
+at startup), with the four profiled groups plus `VectorEngineStalls` listed
+first. `EuStallSampling` and `TestOa` are omitted — they use a different sampling
+mechanism, not the time-based streamer, and would fail to open. A group without a
+curated view (e.g. `RenderBasic`) still samples fine; its metrics show through the
+default view and the raw-counter panel, just without a purpose-built layout.
+
+Everything downstream keys off the active group automatically. `xmx-summary.py`
+detects the group from a capture's columns, so offline analysis needs no flag.
+There is nothing to configure beyond the group itself; a metric absent from the
+active group is skipped rather than shown as zero.
+
+Each group has an import-ready dashboard next to the default one:
+`grafana-dashboard.json` (VectorEngineProfile), `grafana-dashboard-compute.json`,
+`grafana-dashboard-memory.json`, and `grafana-dashboard-cache.json`. They read
+the same generic `xmxmon_*` series, so enabling the exporter is all it takes.
+
+Adding a fourth view is a data change, not a code change — see
+[`docs/metric-groups.md`](docs/metric-groups.md) for the profile format.
+
 ## Daemon mode
 
 `xmxmond.py` keeps samplers running continuously and adds an HTTP API, so
@@ -174,6 +231,7 @@ Published on `127.0.0.1:9143` only. Always available:
 | `POST /capture` | `{"name":"run1","device":0,"duration_s":600}` — switch to high-rate sampling, tee to a tagged ndjson in `captures/`, auto-revert |
 | `POST /capture/stop` | `{"device":0}` — end early |
 | `GET /captures` | running and finished captures |
+| `POST /group` | `{"device":0,"group":"MemoryProfile"}` — switch metric group at runtime; reverts to config on restart |
 
 Omit `device` on either capture call to act on every configured device at once.
 A capture ends when its `duration_s` elapses or you stop it, whichever comes

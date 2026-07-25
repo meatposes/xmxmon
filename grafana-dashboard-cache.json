@@ -1,0 +1,730 @@
+{
+ "title": "xmxmon \u2014 DeviceCacheProfile",
+ "uid": "xmxmon-cache",
+ "timezone": "",
+ "refresh": "5s",
+ "schemaVersion": 39,
+ "graphTooltip": 1,
+ "time": {
+  "from": "now-15m",
+  "to": "now"
+ },
+ "templating": {
+  "list": [
+   {
+    "name": "DS",
+    "label": "Prometheus",
+    "type": "datasource",
+    "query": "prometheus",
+    "refresh": 1,
+    "current": {},
+    "hide": 0
+   },
+   {
+    "name": "device",
+    "label": "GPU device",
+    "type": "query",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "${DS}"
+    },
+    "query": {
+     "query": "label_values(xmxmon_gauge, device)",
+     "refId": "StandardVariableQuery"
+    },
+    "includeAll": true,
+    "multi": true,
+    "allValue": ".*",
+    "current": {
+     "text": [
+      "All"
+     ],
+     "value": [
+      "$__all"
+     ]
+    },
+    "refresh": 2,
+    "sort": 1,
+    "hide": 0
+   }
+  ]
+ },
+ "panels": [
+  {
+   "title": "At a glance",
+   "type": "row",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 0,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "title": "GPU busy",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 1,
+    "w": 6,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"GPU_BUSY\", device=~\"$device\"}",
+     "legendFormat": "dev{{device}}"
+    }
+   ],
+   "options": {
+    "graphMode": "area",
+    "colorMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 40
+       },
+       {
+        "color": "orange",
+        "value": 90
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "title": "L3 hit rate",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 6,
+    "y": 1,
+    "w": 6,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_derived{metric=\"l3_hit_rate\", device=~\"$device\"}",
+     "legendFormat": "dev{{device}}"
+    }
+   ],
+   "options": {
+    "graphMode": "area",
+    "colorMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 40
+       },
+       {
+        "color": "orange",
+        "value": 90
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "title": "L3 busy",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 1,
+    "w": 6,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"L3_BUSY\", device=~\"$device\"}",
+     "legendFormat": "dev{{device}}"
+    }
+   ],
+   "options": {
+    "graphMode": "area",
+    "colorMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "blue",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 40
+       },
+       {
+        "color": "orange",
+        "value": 90
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "title": "L3 superq full",
+   "type": "stat",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 18,
+    "y": 1,
+    "w": 6,
+    "h": 4
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"L3_SUPERQ_FULL\", device=~\"$device\"}",
+     "legendFormat": "dev{{device}}"
+    }
+   ],
+   "options": {
+    "graphMode": "area",
+    "colorMode": "value",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ]
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 5
+       },
+       {
+        "color": "red",
+        "value": 20
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "title": "L3 behaviour",
+   "type": "row",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 5,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "title": "L3 accesses",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 6,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"L3_HIT\", device=~\"$device\"}",
+     "legendFormat": "hit"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"L3_MISS\", device=~\"$device\"}",
+     "legendFormat": "miss"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"L3_READ\", device=~\"$device\"}",
+     "legendFormat": "read"
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"L3_WRITE\", device=~\"$device\"}",
+     "legendFormat": "write"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "cps",
+     "min": 0,
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 8,
+      "showPoints": "never",
+      "spanNulls": true
+     },
+     "color": {
+      "mode": "palette-classic"
+     }
+    },
+    "overrides": []
+   },
+   "description": "Misses here become the VRAM traffic in the bottom row."
+  },
+  {
+   "title": "L3 flow control %",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 6,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"L3_BUSY\", device=~\"$device\"}",
+     "legendFormat": "busy"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"L3_STALL\", device=~\"$device\"}",
+     "legendFormat": "stall"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"L3_SUPERQ_FULL\", device=~\"$device\"}",
+     "legendFormat": "superq full"
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"L3_INPUT_AVAILABLE\", device=~\"$device\"}",
+     "legendFormat": "input avail"
+    },
+    {
+     "refId": "E",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_gauge{metric=\"L3_OUTPUT_READY\", device=~\"$device\"}",
+     "legendFormat": "output ready"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "min": 0,
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 8,
+      "showPoints": "never",
+      "spanNulls": true
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "max": 100
+    },
+    "overrides": []
+   }
+  },
+  {
+   "title": "Who is driving L3",
+   "type": "row",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 14,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "title": "L3 reads by client",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 15,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"LOAD_STORE_CACHE_L3_READ\", device=~\"$device\"}",
+     "legendFormat": "load/store"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"ICACHE_L3_READ\", device=~\"$device\"}",
+     "legendFormat": "instruction"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"SAMPLER_L3_READ\", device=~\"$device\"}",
+     "legendFormat": "sampler"
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"AMFS_L3_ACCESS\", device=~\"$device\"}",
+     "legendFormat": "amfs"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "cps",
+     "min": 0,
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 18,
+      "showPoints": "never",
+      "spanNulls": true,
+      "stacking": {
+       "mode": "normal",
+       "group": "A"
+      }
+     },
+     "color": {
+      "mode": "palette-classic"
+     }
+    },
+    "overrides": []
+   },
+   "description": "Attributes L3 pressure to its source \u2014 for LLM work this is almost entirely load/store."
+  },
+  {
+   "title": "Client L3 read share %",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 12,
+    "y": 15,
+    "w": 12,
+    "h": 8
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_derived{metric=\"l3_from_load_per_store\", device=~\"$device\"}",
+     "legendFormat": "load/store"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_derived{metric=\"l3_from_instruction\", device=~\"$device\"}",
+     "legendFormat": "instruction"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_derived{metric=\"l3_from_sampler\", device=~\"$device\"}",
+     "legendFormat": "sampler"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percent",
+     "min": 0,
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 8,
+      "showPoints": "never",
+      "spanNulls": true
+     },
+     "color": {
+      "mode": "palette-classic"
+     },
+     "max": 100
+    },
+    "overrides": []
+   }
+  },
+  {
+   "title": "L3 \u2192 VRAM",
+   "type": "row",
+   "collapsed": false,
+   "gridPos": {
+    "x": 0,
+    "y": 23,
+    "w": 24,
+    "h": 1
+   },
+   "panels": []
+  },
+  {
+   "title": "GTI / VRAM traffic",
+   "type": "timeseries",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "${DS}"
+   },
+   "gridPos": {
+    "x": 0,
+    "y": 24,
+    "w": 24,
+    "h": 7
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"GPU_MEMORY_READ\", device=~\"$device\"}",
+     "legendFormat": "GTI read"
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"GPU_MEMORY_WRITE\", device=~\"$device\"}",
+     "legendFormat": "GTI write"
+    },
+    {
+     "refId": "C",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"GPU_MEMORY_L3_READ\", device=~\"$device\"}",
+     "legendFormat": "miss\u2192VRAM read"
+    },
+    {
+     "refId": "D",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "${DS}"
+     },
+     "expr": "xmxmon_rate_per_s{metric=\"GPU_MEMORY_L3_WRITE\", device=~\"$device\"}",
+     "legendFormat": "evict\u2192VRAM write"
+    }
+   ],
+   "options": {
+    "legend": {
+     "displayMode": "list",
+     "placement": "bottom"
+    },
+    "tooltip": {
+     "mode": "multi",
+     "sort": "desc"
+    }
+   },
+   "fieldConfig": {
+    "defaults": {
+     "unit": "cps",
+     "min": 0,
+     "custom": {
+      "drawStyle": "line",
+      "lineWidth": 2,
+      "fillOpacity": 8,
+      "showPoints": "never",
+      "spanNulls": true
+     },
+     "color": {
+      "mode": "palette-classic"
+     }
+    },
+    "overrides": []
+   },
+   "description": "Traffic that L3 could not absorb and had to push to VRAM."
+  }
+ ]
+}

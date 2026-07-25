@@ -21,9 +21,95 @@ ARGS = [a for a in sys.argv[1:]]
 DETAILED = "--detailed" in ARGS or "-d" in ARGS
 POS = [a for a in ARGS if not a.startswith("-")]
 BASE = POS[0] if POS else "http://localhost:9143"
-XMX = [("INT2", "XVE_INST_EXECUTED_XMX_INT2"), ("INT4", "XVE_INST_EXECUTED_XMX_INT4"),
-       ("INT8", "XVE_INST_EXECUTED_XMX_INT8"), ("FP16", "XVE_INST_EXECUTED_XMX_FP16"),
-       ("BF16", "XVE_INST_EXECUTED_XMX_BF16")]
+
+def post(path, obj):
+    """Fire-and-forget POST to the daemon (capture/group controls)."""
+    req = urllib.request.Request(
+        BASE + path, data=json.dumps(obj).encode(),
+        headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=3).read()
+    except Exception:
+        pass
+
+
+def _switchables(snap):
+    return [s.get("switchable") or [] for s in snap.values()]
+
+
+def common_groups(snap):
+    """Groups every device can switch to — the only safe targets for 'all'."""
+    lists = _switchables(snap)
+    if not lists:
+        return []
+    return [g for g in lists[0] if all(g in l for l in lists)]
+
+
+def union_groups(snap):
+    """Every group any device offers, first-seen order."""
+    seen = []
+    for l in _switchables(snap):
+        for g in l:
+            if g not in seen:
+                seen.append(g)
+    return seen
+
+
+def group_owners(snap, group):
+    """Device ids that expose a group (for the 'only on dev N' hint)."""
+    return [dev for dev, s in sorted(snap.items())
+            if group in (s.get("switchable") or [])]
+
+
+def menu_screen(snap, menu, width):
+    """Full-screen picker for the [g] group switch.
+
+    Two stages: choose a device, then choose the group. The device stage is
+    skipped when there is only one device, and lists "apply to all devices" as
+    its first entry — picking it sets every card to the next group chosen. The
+    current group is marked in the group stage. Items are lettered so the list
+    can exceed nine entries.
+    """
+    devs = sorted(snap.items())
+    lines = ["\x1b[H\x1b[2Jxmxmon — switch metric group      "
+             "[letter] select   [Esc] cancel", ""]
+    if menu["stage"] == "dev":
+        lines.append(" choose device:")
+        lines.append("   a)  apply to ALL devices")
+        for i, (dev, s) in enumerate(devs):
+            lines.append(f"   {chr(98 + i)})  device {dev}    "
+                         f"(now: {s.get('group', '?')})")
+    elif menu.get("all"):
+        # Only groups common to every device are selectable; ones unique to a
+        # card are shown greyed so a mixed fleet can't be sent a group a card
+        # doesn't have.
+        common = common_groups(snap)
+        lines.append(" ALL devices — choose group  "
+                     "(struck-through = not on every card):")
+        ci = 0
+        for g in union_groups(snap):
+            if g in common:
+                lines.append(f"   {chr(97 + ci)})   {g}")
+                ci += 1
+            else:
+                owners = ",".join(str(d) for d in group_owners(snap, g))
+                lines.append(f"   ·  \x1b[9m{g}\x1b[0m   (only dev {owners})")
+    else:
+        dev = menu["dev"]
+        s = snap.get(dev, {})
+        lines.append(f" device {dev} — choose group:")
+        for i, g in enumerate(s.get("switchable") or []):
+            mark = "*" if g == s.get("group") else " "
+            lines.append(f"   {chr(97 + i)}) {mark} {g}")
+        if s.get("capture"):
+            lines.append("")
+            lines.append(" note: this device is CAPTURING — switch refused "
+                         "until you stop it")
+    lines.append("")
+    lines.append(" switch is device-wide (every viewer sees it) and reverts "
+                 "to config on restart")
+    return lines
+
 
 def si(v):
     for t, s in ((1e12, "T"), (1e9, "G"), (1e6, "M"), (1e3, "k")):
@@ -49,6 +135,9 @@ def fmt(value, unit):
         s = f"{value:.2f}x"
     elif unit == "/s":
         s = f"{si(value).strip()}/s"
+    elif unit == "B/s":
+        g = value / 1e9
+        s = f"{g:.1f}G" if g >= 0.1 else f"{value / 1e6:.0f}M"
     elif abs(value) < 100:
         s = f"{value:.3f}"
     else:
@@ -65,7 +154,60 @@ SHORT = {
     "barrier share": "barriers", "memory ops / XMX": "memop/XMX",
     "divergent issue": "divergent", "icache miss": "icache miss",
     "multi-pipe active": "multi-pipe",
+    # ComputeBasic / MemoryProfile / DeviceCacheProfile
+    "send / issued": "send/iss", "dispatch overhead": "dispatch",
+    "compute engine busy": "cmd busy", "L1 hit rate": "L1 hit",
+    "L3 hit rate": "L3 hit", "VRAM read": "VRAM rd", "VRAM write": "VRAM wr",
+    "PCIe host→GPU": "PCIe→gpu", "GPU→sysmem": "gpu→sys",
+    "SLM traffic": "SLM", "kernel dispatches": "kernel disp",
+    "read coalescing": "rd coalesc", "write coalescing": "wr coalesc",
+    "L3 superq full": "L3 superq", "mem queue full": "mem q full",
+    "copy engine stall": "copy stall", "L1 partial writes": "L1 partial",
+    "SLM bank conflicts": "SLM bankcf",
+    "L3 from load/store": "L3 ld/st", "L3 from instruction": "L3 icache",
+    "L3 from sampler": "L3 sampler", "load/store L3 hit": "ld/st L3hit",
+    "L3 busy": "L3 busy", "L3→VRAM read": "L3→vram r",
+    "L3→VRAM write": "L3→vram w",
 }
+
+
+def hero_lines(dev, s, peaks, barw):
+    """Left-column bars/rates from the active group's hero spec (xmxderive).
+
+    Each spec item renders itself; peaks are held per (device, metric) so bars
+    keep a high-water mark across the session, matching the WUI's autoscale.
+    """
+    g, r = s.get("gauges", {}), s.get("rates", {})
+    lines = []
+    for item in xmxderive.hero(s.get("group")):
+        kind, label = item[0], item[1]
+        if kind == "pct":
+            v = g.get(item[2], 0.0)
+            pk = peaks[dev, item[2]] = max(peaks.get((dev, item[2]), 0), v)
+            lines.append(f" {label:9s}[{bar(v, barw, pk)}]{v:5.1f}%")
+        elif kind == "rate":
+            v = r.get(item[2], 0.0)
+            pk = peaks[dev, item[2]] = max(peaks.get((dev, item[2]), 0), v) or 1
+            mark = "" if v > 0 else " (idle)"
+            lines.append(f" {label:9s}[{bar(v / pk * 100, barw)}]{si(v)}/s{mark}")
+        elif kind == "xmxgroup":
+            keys = [k for _, k in item[2]]
+            for k in keys:
+                peaks[dev, k] = max(peaks.get((dev, k), 0), r.get(k, 0.0))
+            gmax = max((peaks.get((dev, k), 0) for k in keys), default=1) or 1
+            for sub, k in item[2]:
+                v = r.get(k, 0.0)
+                mark = "" if v > 0 else " (idle)"
+                lines.append(f" {label} {sub:5s}[{bar(v / gmax * 100, barw)}]"
+                             f"{si(v)}/s{mark}")
+        elif kind in ("rwgb", "rwtx64"):
+            scale = (64 if kind == "rwtx64" else 1) / 1e9
+            rd = r.get(item[2][0], 0) * scale
+            wr = r.get(item[2][1], 0) * scale
+            lines.append(f" {label} R{rd:7.1f} W{wr:6.1f} GB/s")
+        elif kind == "freq":
+            lines.append(f" {label} {g.get(item[2], 0):.0f} MHz")
+    return lines
 
 
 def device_columns(dev, s, peaks, detailed, barw, right_w=42):
@@ -75,27 +217,8 @@ def device_columns(dev, s, peaks, detailed, barw, right_w=42):
     long metric list doesn't stretch the block far past the left column and
     push the next device off a standard 24-line terminal.
     """
-    g, r = s.get("gauges", {}), s.get("rates", {})
-    left, right = [], []
-
-    for label, key in (("busy", "GPU_BUSY"), ("XVE act", "XVE_ACTIVE"),
-                       ("occupancy", "XVE_THREADS_OCCUPANCY_ALL")):
-        v = g.get(key, 0.0)
-        pk = peaks[dev, key] = max(peaks.get((dev, key), 0), v)
-        left.append(f" {label:9s}[{bar(v, barw, pk)}]{v:5.1f}%")
-
-    xmx_max = max((peaks.get((dev, k), 0) for _, k in XMX), default=1) or 1
-    for label, key in XMX:
-        v = r.get(key, 0.0)
-        pk = peaks[dev, key] = max(peaks.get((dev, key), 0), v)
-        mark = "" if v > 0 else " (idle)"
-        left.append(f" XMX {label:5s}[{bar(v / xmx_max * 100, barw)}]"
-                    f"{si(v)}/s{mark}")
-
-    rd = r.get("GPU_MEMORY_BYTE_READ", 0) / 1e9
-    wr = r.get("GPU_MEMORY_BYTE_WRITE", 0) / 1e9
-    left.append(f" mem R{rd:7.1f} W{wr:6.1f} GB/s")
-    left.append(f" freq {g.get('AvgGpuCoreFrequencyMHz', 0):.0f} MHz")
+    left = hero_lines(dev, s, peaks, barw)
+    right = []
 
     if detailed:
         cells = [f" {SHORT.get(d['label'], d['label'])[:12]:12s}"
@@ -118,13 +241,19 @@ def raw_block(s, width):
     merged = dict(s.get("rates", {}))
     merged.update(s.get("gauges", {}))
     cells = []
-    for group, items in xmxderive.raw_rows(merged):
+    for group, items in xmxderive.raw_rows(merged, s.get("group")):
         for k, val in items:
             short = (k.replace("XVE_INST_EXECUTED_", "")
                       .replace("COMMAND_PARSER_COMPUTE_ENGINE_DISPATCH_KERNEL_COUNT",
                                "KERNELS")
                       .replace("GPGPU_THREADGROUP_COUNT", "THREADGROUPS")
-                      .replace("GPU_MEMORY_BYTE_", "MEM_"))[:14]
+                      .replace("HOST_TO_GPUMEM_TRANSACTION_", "PCIe_")
+                      .replace("SYSMEM_TRANSACTION_", "SYS_")
+                      .replace("GPU_MEMORY_32B_TRANSACTION_", "32B_")
+                      .replace("GPU_MEMORY_64B_TRANSACTION_", "64B_")
+                      .replace("LOAD_STORE_CACHE_", "L1_")
+                      .replace("GPU_MEMORY_BYTE_", "MEM_")
+                      .replace("GPU_MEMORY_", "GTI_"))[:14]
             cells.append(f" {short:14s}{si(val).strip():>8s}/s")
     if not cells:
         return []
@@ -141,6 +270,7 @@ def main():
     detailed = DETAILED
     show_raw = False
     peaks = {}
+    menu = None            # None, or {"stage": "dev"} / {"stage": "grp", "dev": d}
     # Raw-mode key polling only works on a real terminal; when piped or run
     # under nohup, fall back to plain refreshes and let SIGINT do the quitting.
     interactive = sys.stdin.isatty()
@@ -166,7 +296,7 @@ def main():
             hint = "[d] detail" if not detailed else \
                    ("[d] off [r] raw" if not show_raw else "[d] off [r] hide raw")
             out = [f"\x1b[H\x1b[2Jxmxmon — {time.strftime('%H:%M:%S')}"
-                   f"   {hint} [q] quit"]
+                   f"   {hint} [g] group [q] quit"]
             for dev, s in sorted(snap.items()):
                 cap = s.get("capture")
                 state = (f"CAPTURING {cap['name']} ({cap['rows']}r)" if cap
@@ -187,6 +317,8 @@ def main():
                     out.extend(right)
                 if detailed and show_raw:
                     out.extend(raw_block(s, width))
+            if menu is not None:                       # picker overlays the view
+                out = menu_screen(snap, menu, width)
             print("\n".join(out), flush=True)
             if not interactive:
                 time.sleep(0.5)
@@ -195,6 +327,33 @@ def main():
             while time.time() - t0 < 0.5:
                 if select.select([sys.stdin], [], [], 0.1)[0]:
                     ch = sys.stdin.read(1)
+                    if menu is not None:               # menu captures all keys
+                        if ch in ("\x1b", "q"):
+                            menu = None
+                        elif ch.isalpha() and len(ch) == 1:
+                            devs = sorted(snap.items())
+                            idx = ord(ch.lower()) - 97
+                            if menu["stage"] == "dev":
+                                if idx == 0:            # a) apply to all
+                                    menu = {"stage": "grp", "dev": devs[0][0],
+                                            "all": True}
+                                elif 1 <= idx <= len(devs):
+                                    menu = {"stage": "grp",
+                                            "dev": devs[idx - 1][0], "all": False}
+                            elif menu.get("all"):
+                                common = common_groups(snap)   # only common
+                                if 0 <= idx < len(common):
+                                    for d, _ in devs:
+                                        post("/group", {"device": int(d),
+                                                        "group": common[idx]})
+                                    menu = None
+                            else:
+                                sw = snap.get(menu["dev"], {}).get("switchable") or []
+                                if 0 <= idx < len(sw):
+                                    post("/group", {"device": int(menu["dev"]),
+                                                    "group": sw[idx]})
+                                    menu = None
+                        break
                     if ch == "q":
                         return
                     if ch == "d":
@@ -204,6 +363,11 @@ def main():
                         break
                     if ch == "r" and detailed:
                         show_raw = not show_raw
+                        break
+                    if ch == "g":                      # open the picker
+                        devs = sorted(snap.items())
+                        menu = ({"stage": "grp", "dev": devs[0][0]}
+                                if len(devs) == 1 else {"stage": "dev"})
                         break
     except KeyboardInterrupt:
         pass
