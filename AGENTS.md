@@ -25,14 +25,15 @@ need it, it almost certainly belongs somewhere else.
 | `xmx-summary.py` | Reads a CSV, prints an XMX verdict plus utilization stats; `--detailed` adds the overhead section. |
 | `xmxderive.py` | **Shared** per-metric-group profiles: derived-metric math, raw grouping, the TUI hero spec, and the web-UI view spec. The daemon, TUI, web UI, and summary all go through it — do not reimplement any of this elsewhere. One profile per Level Zero group; adding a group is a data change here. See `docs/metric-groups.md`. |
 | `xmxmond.py` | Daemon: one `xmxmon --json` subprocess per device, aggregates into rates/gauges, serves HTTP. |
-| `xmxmon-tui.py` | Terminal UI. Thin HTTP client on the daemon — no GPU access of its own. |
-| `wui.html` | Web UI, served by the daemon when enabled. Vanilla JS, SSE, canvas. No build step, no dependencies. |
+| `xmxmon-tui.py` | Terminal UI. Thin HTTP client on the daemon — no GPU access of its own. Renders the active group's `hero` spec; `g` opens the metric-group picker. |
+| `wui.html` | Web UI, served by the daemon when enabled. Vanilla JS, SSE, canvas. No build step, no dependencies. Data-driven from the snapshot's `view` spec; the header has the group dropdown and the "sync all" toggle. |
 | `xmxmon.yaml.example` | Tracked config template. Users copy it to `xmxmon.yaml`, which is gitignored. |
 | `docker-compose.override.yml.example` | Tracked template for machine-specific Compose changes; the real override is gitignored and auto-merged by Compose. |
 | `Dockerfile` | Ubuntu + Intel graphics PPA + `g++` build of the sampler. |
 | `docker-compose.yml` | Daemon deployment. |
 | `grafana-dashboard.json` | Import-ready dashboard (VectorEngineProfile); uses a datasource picker, no hardcoded UID. |
-| `grafana-dashboard-{compute,memory,cache}.json` | Per-group dashboards (ComputeBasic / MemoryProfile / DeviceCacheProfile). Same generic `xmxmon_*` series and templating conventions as the default. |
+| `grafana-dashboard-{compute,memory,cache}.json` | Hand-built per-group dashboards (ComputeBasic / MemoryProfile / DeviceCacheProfile). Same generic `xmxmon_*` series and templating as the default. |
+| `grafana-dashboard-{stalls,render,depth,renderpipe,rt,xve-raster,xve-rt}.json` | Auto-generated dashboards for the remaining switchable groups — hero plus levels/bandwidth/counter panels straight from each group's metric list. Functional, not hand-tuned; promote to a curated `xmxderive` profile if a group earns one. |
 | `docs/metric-groups.md` | How the per-group views work and how to add one. |
 
 ## Build and test
@@ -55,6 +56,10 @@ against real hardware using controls**, in this order:
    canonical proof that per-precision resolution works end to end.
 4. **Daemon round trip.** `POST /capture` → run something → `POST /capture/stop` →
    confirm `GET /captures` reports a non-zero row count and the ndjson exists.
+5. **Group switch.** `POST /group` to another group; confirm the snapshot's
+   `group` and `view` change and the window resets (a metric unique to the new
+   group appears). A group not on the device, and a switch during a capture, must
+   both return 409.
 
 For reference, a saturating memory copy on an Arc Pro B70 sustains ~585 GB/s
 combined read+write; a fp16 matmul loop reaches roughly 7% of XVE slot capacity.
@@ -103,25 +108,26 @@ keeps the C++ side single-purpose.
 
 Lifecycle details that matter:
 
-- **A metric-group switch (`POST /group`) restarts the child**, since the group is
-  fixed at streamer-open time: `_run()` breaks its read loop and re-spawns when
-  `_want_group` differs, and `_spawn` **clears the rolling window** (mixing two
-  groups' metrics would corrupt every derived ratio). It's in-memory only, so
-  config wins on restart.
-- **Captures do NOT reopen the streamer.** They tee samples at the current rate.
-  Reopening to raise the rate could wedge the OA session on a busy device — an
-  uninterruptible driver call that froze telemetry and left the daemon respawning
-  against a hung OA context, the pattern that escalates a GPU hang. `capture_period_ms`
-  is therefore ignored. **Do not reintroduce a per-capture rate change.**
+- **Changing the sampling period or metric group restarts the child.** Both are
+  fixed at streamer-open time, so `_run()` breaks its read loop and re-spawns when
+  `_want_period` or `_want_group` differs. Captures use the period path to switch
+  to high-rate sampling and drop back afterward; `POST /group` uses the group path
+  for a runtime lens change. A group switch also **clears the rolling window**
+  (`_spawn`) — aggregating two groups' metrics together would corrupt every
+  derived ratio — and is in-memory only, so config wins on restart.
+- **Switchable groups are enumerated at startup.** `enumerate_groups` parses
+  `xmxmon --list` into `AVAILABLE[device]`, minus `UNSWITCHABLE_GROUPS`
+  (`EuStallSampling`, `TestOa` — they need a different Level Zero mechanism, not
+  the time-based streamer, so they would crash on open). `POST /group` validates
+  against that per-device list — the real safety boundary. The UI's "all devices"
+  path additionally offers only the intersection across devices (so a mixed
+  fleet can't be sent a group one card lacks), but that is a convenience on top of
+  the per-device check. `xmxderive.SWITCHABLE` only sets the preferred ordering
+  (profiled groups first); a group with no profile falls back to the
+  VectorEngineProfile view.
 - **Captures are tee'd, not buffered.** Rows are written as they arrive, so a
   killed daemon still leaves a valid partial ndjson. Preserve this — a previous
   generation of tooling lost entire captures by flushing only at exit.
-- **A timed capture is stopped by a wall-clock watchdog** (`capture_watchdog` →
-  `check_capture_expiry`), not only by the `until` check on sample arrival — a
-  stalled streamer once pinned a zero-row capture open forever.
-- **Respawns back off.** A child that dies within ~5 s of spawning (a failed or
-  wedged streamer open) increments a failure count and the loop sleeps up to 30 s;
-  never tight-retry an OA open, which is what drives a wedge toward a card reset.
 - **`snapshot()` aggregates a rolling `window_s`.** Counters become per-second
   rates (sum ÷ window); levels are averaged. Which is which is decided by
   `xmxderive.is_percent()`, and `SKIP` drops bookkeeping fields (timestamps,
@@ -178,7 +184,10 @@ docs, UI copy, or analysis you write.
   Neither has authentication.
 - **The daemon binds loopback by default**; compose publishes to `127.0.0.1`. A
   change that exposes either surface by default is a regression, not a convenience.
-- The capture API is unauthenticated too, so it inherits the same bind restriction.
+- The capture and group-switch (`POST /group`) APIs are unauthenticated too, so
+  they inherit the same loopback bind restriction. A group switch is device-wide,
+  so anyone who can reach the daemon changes the group for every viewer of that
+  GPU — another reason the default bind stays on loopback.
 - The container needs only `--device /dev/dri`. **Never add `--privileged`, host PID
   namespace, or host network to make something work** — if that seems necessary,
   the approach is wrong.
