@@ -69,6 +69,15 @@ shared metrics (GPU busy, VRAM bytes) still render. The TUI picker lists devices
 "apply to all devices" as the first entry; choosing it sets every card to the
 next group picked.
 
+The "all devices" path only offers groups **common to every device** — the
+intersection of each card's enumerated list. Groups unique to one card are shown
+greyed (TUI) or disabled (web UI "sync all" checkbox) and can't be chosen for
+all, so a mixed-architecture fleet (cards exposing different groups) can never be
+sent a group one of them lacks. Per-device selection is unaffected: each card can
+always be switched to any group it individually supports. The daemon enforces
+this regardless — a per-device switch validates against that device's own list —
+so the common-set logic is a UI guard, not the safety boundary.
+
 ## The profile format (`xmxderive.py`)
 
 `PROFILES[group]` is a dict:

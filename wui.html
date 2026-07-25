@@ -86,7 +86,17 @@ const PAL = ["#3987e5","#d95926","#199e70","#c98500","#d55181","#008300","#9085e
 // `view` describing which series to plot for whichever metric group that device
 // samples. This file only knows how to render a spec, never what the groups are.
 const WINDOW_S = 120, hist = {}, VIEW = {}, GROUP = {};  // dev -> points / view / group
-let linkAll = false;   // "sync all": a group change hits every GPU at once
+let linkAll = false, COMMON = [];   // "sync all" + groups common to every device
+function commonGroups(all){
+  const lists=Object.values(all).map(s=>s.switchable||[]);
+  if(!lists.length) return [];
+  return lists[0].filter(g=>lists.every(l=>l.includes(g)));
+}
+function refreshSyncDisabled(){   // grey groups a card lacks while syncing all
+  document.querySelectorAll(".grpsel").forEach(sel=>{
+    for(const o of sel.options) o.disabled = linkAll && !COMMON.includes(o.value);
+  });
+}
 function fmtSI(v){ if(v>=1e12)return (v/1e12).toFixed(1)+"T";
   if(v>=1e9)return (v/1e9).toFixed(1)+"G"; if(v>=1e6)return (v/1e6).toFixed(1)+"M";
   if(v>=1e3)return (v/1e3).toFixed(1)+"k"; return v.toFixed(0); }
@@ -184,6 +194,7 @@ async function stopCap(dev){
 function setLink(v){            // keep every device's checkbox in lockstep
   linkAll=v;
   document.querySelectorAll(".syncbox").forEach(c=>{c.checked=v;});
+  refreshSyncDisabled();
 }
 async function switchGroup(dev,group){
   // daemon keys devices by int; when synced, change every GPU at once
@@ -260,6 +271,7 @@ function tiles(dev,snap){
 const es=new EventSource("/events");
 es.onmessage=ev=>{
   const all=JSON.parse(ev.data), now=Date.now()/1000;
+  COMMON=commonGroups(all);
   for(const [dev,snap] of Object.entries(all)){
     if(!snap.view) continue;               // no aggregate yet
     // A runtime group switch changes the whole panel layout; tear down and
@@ -286,6 +298,7 @@ es.onmessage=ev=>{
     else {cap.textContent="idle";cap.className="cap";}
     draw(dev);
   }
+  refreshSyncDisabled();   // apply greying to any newly-built dropdowns
 };
 </script>
 </body>

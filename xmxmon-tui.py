@@ -33,6 +33,34 @@ def post(path, obj):
         pass
 
 
+def _switchables(snap):
+    return [s.get("switchable") or [] for s in snap.values()]
+
+
+def common_groups(snap):
+    """Groups every device can switch to — the only safe targets for 'all'."""
+    lists = _switchables(snap)
+    if not lists:
+        return []
+    return [g for g in lists[0] if all(g in l for l in lists)]
+
+
+def union_groups(snap):
+    """Every group any device offers, first-seen order."""
+    seen = []
+    for l in _switchables(snap):
+        for g in l:
+            if g not in seen:
+                seen.append(g)
+    return seen
+
+
+def group_owners(snap, group):
+    """Device ids that expose a group (for the 'only on dev N' hint)."""
+    return [dev for dev, s in sorted(snap.items())
+            if group in (s.get("switchable") or [])]
+
+
 def menu_screen(snap, menu, width):
     """Full-screen picker for the [g] group switch.
 
@@ -51,17 +79,28 @@ def menu_screen(snap, menu, width):
         for i, (dev, s) in enumerate(devs):
             lines.append(f"   {chr(98 + i)})  device {dev}    "
                          f"(now: {s.get('group', '?')})")
+    elif menu.get("all"):
+        # Only groups common to every device are selectable; ones unique to a
+        # card are shown greyed so a mixed fleet can't be sent a group a card
+        # doesn't have.
+        common = common_groups(snap)
+        lines.append(" ALL devices — choose group  (grey = not on every card):")
+        ci = 0
+        for g in union_groups(snap):
+            if g in common:
+                lines.append(f"   {chr(97 + ci)})   {g}")
+                ci += 1
+            else:
+                owners = ",".join(str(d) for d in group_owners(snap, g))
+                lines.append(f"   \x1b[2m·     {g}   (only dev {owners})\x1b[0m")
     else:
         dev = menu["dev"]
         s = snap.get(dev, {})
-        sw = s.get("switchable") or []
-        allmode = menu.get("all")
-        lines.append(f" {'ALL devices' if allmode else 'device ' + str(dev)}"
-                     f" — choose group:")
-        for i, g in enumerate(sw):
-            mark = "*" if (not allmode and g == s.get("group")) else " "
+        lines.append(f" device {dev} — choose group:")
+        for i, g in enumerate(s.get("switchable") or []):
+            mark = "*" if g == s.get("group") else " "
             lines.append(f"   {chr(97 + i)}) {mark} {g}")
-        if not allmode and s.get("capture"):
+        if s.get("capture"):
             lines.append("")
             lines.append(" note: this device is CAPTURING — switch refused "
                          "until you stop it")
@@ -300,16 +339,18 @@ def main():
                                 elif 1 <= idx <= len(devs):
                                     menu = {"stage": "grp",
                                             "dev": devs[idx - 1][0], "all": False}
+                            elif menu.get("all"):
+                                common = common_groups(snap)   # only common
+                                if 0 <= idx < len(common):
+                                    for d, _ in devs:
+                                        post("/group", {"device": int(d),
+                                                        "group": common[idx]})
+                                    menu = None
                             else:
                                 sw = snap.get(menu["dev"], {}).get("switchable") or []
                                 if 0 <= idx < len(sw):
-                                    if menu.get("all"):
-                                        for d, _ in devs:
-                                            post("/group", {"device": int(d),
-                                                            "group": sw[idx]})
-                                    else:
-                                        post("/group", {"device": int(menu["dev"]),
-                                                        "group": sw[idx]})
+                                    post("/group", {"device": int(menu["dev"]),
+                                                    "group": sw[idx]})
                                     menu = None
                         break
                     if ch == "q":
