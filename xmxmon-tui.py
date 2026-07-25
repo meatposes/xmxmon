@@ -84,7 +84,8 @@ def menu_screen(snap, menu, width):
         # card are shown greyed so a mixed fleet can't be sent a group a card
         # doesn't have.
         common = common_groups(snap)
-        lines.append(" ALL devices — choose group  (grey = not on every card):")
+        lines.append(" ALL devices — choose group  "
+                     "(struck-through = not on every card):")
         ci = 0
         for g in union_groups(snap):
             if g in common:
@@ -92,7 +93,7 @@ def menu_screen(snap, menu, width):
                 ci += 1
             else:
                 owners = ",".join(str(d) for d in group_owners(snap, g))
-                lines.append(f"   \x1b[2m·     {g}   (only dev {owners})\x1b[0m")
+                lines.append(f"   ·  \x1b[9m{g}\x1b[0m   (only dev {owners})")
     else:
         dev = menu["dev"]
         s = snap.get(dev, {})
