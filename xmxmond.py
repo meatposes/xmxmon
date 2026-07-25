@@ -123,11 +123,11 @@ class Sampler:
                                     "rows": self.capture["rows"]}
         if not rows:
             return {"device": self.device, "n": 0, "capture": cap,
-                    "group": self.group}
+                    "group": self.group, "view": xmxderive.view(self.group)}
         secs = self.cfg["window_s"]
         out = {"device": self.device, "n": len(rows), "capture": cap,
                "group": self.group, "period_ms": self.period_ms,
-               "rates": {}, "gauges": {}}
+               "view": xmxderive.view(self.group), "rates": {}, "gauges": {}}
         keys = rows[-1].keys()
         for k in keys:
             if k in SKIP:
@@ -144,7 +144,7 @@ class Sampler:
             {"label": lbl, "value": (None if val != val or val in
                                      (float("inf"), float("-inf")) else val),
              "unit": unit, "note": note}
-            for lbl, val, unit, note in xmxderive.derive(merged)
+            for lbl, val, unit, note in xmxderive.derive(merged, self.group)
         ]
         return out
 

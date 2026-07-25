@@ -23,7 +23,7 @@ need it, it almost certainly belongs somewhere else.
 |---|---|
 | `xmxmon.cpp` | The sampler. Single-file C++, links only `libze_loader`. Emits CSV or ndjson. Everything else is downstream of this. |
 | `xmx-summary.py` | Reads a CSV, prints an XMX verdict plus utilization stats; `--detailed` adds the overhead section. |
-| `xmxderive.py` | **Shared** derived-metric math (overhead ratios, raw grouping). The daemon, TUI, web UI, and summary all go through it — do not reimplement these ratios anywhere else. |
+| `xmxderive.py` | **Shared** per-metric-group profiles: derived-metric math, raw grouping, the TUI hero spec, and the web-UI view spec. The daemon, TUI, web UI, and summary all go through it — do not reimplement any of this elsewhere. One profile per Level Zero group; adding a group is a data change here. See `docs/metric-groups.md`. |
 | `xmxmond.py` | Daemon: one `xmxmon --json` subprocess per device, aggregates into rates/gauges, serves HTTP. |
 | `xmxmon-tui.py` | Terminal UI. Thin HTTP client on the daemon — no GPU access of its own. |
 | `wui.html` | Web UI, served by the daemon when enabled. Vanilla JS, SSE, canvas. No build step, no dependencies. |
@@ -31,7 +31,9 @@ need it, it almost certainly belongs somewhere else.
 | `docker-compose.override.yml.example` | Tracked template for machine-specific Compose changes; the real override is gitignored and auto-merged by Compose. |
 | `Dockerfile` | Ubuntu + Intel graphics PPA + `g++` build of the sampler. |
 | `docker-compose.yml` | Daemon deployment. |
-| `grafana-dashboard.json` | Import-ready dashboard; uses a datasource picker, no hardcoded UID. |
+| `grafana-dashboard.json` | Import-ready dashboard (VectorEngineProfile); uses a datasource picker, no hardcoded UID. |
+| `grafana-dashboard-{compute,memory,cache}.json` | Per-group dashboards (ComputeBasic / MemoryProfile / DeviceCacheProfile). Same generic `xmxmon_*` series and templating conventions as the default. |
+| `docs/metric-groups.md` | How the per-group views work and how to add one. |
 
 ## Build and test
 
@@ -109,10 +111,15 @@ Lifecycle details that matter:
   killed daemon still leaves a valid partial ndjson. Preserve this — a previous
   generation of tooling lost entire captures by flushing only at exit.
 - **`snapshot()` aggregates a rolling `window_s`.** Counters become per-second
-  rates (sum ÷ window); levels are averaged. Which is which is decided by the
-  `GAUGES` set, and `SKIP` drops bookkeeping fields (timestamps, context IDs).
-  **A metric not in `GAUGES` is treated as a counter** — add new percentage or
-  frequency metrics to `GAUGES` or they will be nonsensically divided by time.
+  rates (sum ÷ window); levels are averaged. Which is which is decided by
+  `xmxderive.is_percent()`, and `SKIP` drops bookkeeping fields (timestamps,
+  context IDs). **A metric not recognised as a level is treated as a counter** —
+  add new percentage/frequency/pre-computed-rate metrics to `xmxderive.PERCENT`
+  (or ensure they match its suffix rules) or they will be divided by time and
+  read as huge nonsense numbers.
+- **Each snapshot carries its `group` and a `view` spec** (from the group's
+  profile in `xmxderive`). The web UI renders that spec; the TUI reads the
+  group's `hero`. Downstream code must not hardcode which metrics a group has.
 
 ## Interpreting output — the traps
 
@@ -209,6 +216,8 @@ reason.
 - No configurable peak-bandwidth ceiling, so bandwidth can't be shown as a
   percentage of hardware capability.
 - Multi-group sampling is impossible per device, so comparing e.g. stall data with
-  XMX data requires two runs and manual correlation.
+  XMX data requires two runs (or two devices with different `groups:`) and manual
+  correlation. Views adapt to whichever group is active, but they cannot show two
+  groups at once for one device.
 - The B-series XVE count is not read from the device, so slot-occupancy estimates
   in external analysis are hand-computed rather than derived.

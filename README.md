@@ -160,6 +160,45 @@ say, 8-bit activations against 2-bit weights increments the INT8 counter, not IN
 So `XMX_INT2` staying at zero does not mean 2-bit data never reached the matrix
 engine — reaching that counter requires *both* operands to be 2-bit.
 
+## Metric groups
+
+`VectorEngineProfile` answers "is the matrix engine being used, and how
+efficiently" — but a device exposes a dozen groups (`xmxmon --list`), and only
+one can be sampled at a time. Three of them profile a compute workload from
+angles the XMX counters can't see, and xmxmon now ships a matched view for each:
+the TUI hero column, the web-UI tiles and charts, the `--detailed` overhead
+ratios, and a Grafana dashboard all follow whichever group a device samples.
+
+| Group | Answers | Highlights |
+|---|---|---|
+| `VectorEngineProfile` | matrix-engine use and operand-prep tax | XMX per precision, prep/XMX, arithmetic intensity |
+| `ComputeBasic` | where the whole pipeline spends time | XVE pipes + L1/L3 hit rates + VRAM + PCIe/sysmem + dispatch, all at once |
+| `MemoryProfile` | the memory subsystem in depth (the decode bottleneck) | read/write bandwidth, **32B-vs-64B coalescing**, L3 flow-control saturation, copy engine |
+| `DeviceCacheProfile` | L3 behaviour and **who drives it** | L3 reads attributed to load/store vs instruction vs sampler, and the VRAM traffic behind misses |
+
+Select per device in `xmxmon.yaml` — the `group:` default plus an optional
+`groups:` map that overrides individual cards, so one GPU can report XMX while
+another reports memory or cache:
+
+```yaml
+group: VectorEngineProfile
+groups:
+  1: MemoryProfile        # device 1 samples the memory subsystem instead
+```
+
+Everything downstream keys off the active group automatically. `xmx-summary.py`
+detects the group from a capture's columns, so offline analysis needs no flag.
+There is nothing to configure beyond the group itself; a metric absent from the
+active group is skipped rather than shown as zero.
+
+Each group has an import-ready dashboard next to the default one:
+`grafana-dashboard.json` (VectorEngineProfile), `grafana-dashboard-compute.json`,
+`grafana-dashboard-memory.json`, and `grafana-dashboard-cache.json`. They read
+the same generic `xmxmon_*` series, so enabling the exporter is all it takes.
+
+Adding a fourth view is a data change, not a code change — see
+[`docs/metric-groups.md`](docs/metric-groups.md) for the profile format.
+
 ## Daemon mode
 
 `xmxmond.py` keeps samplers running continuously and adds an HTTP API, so

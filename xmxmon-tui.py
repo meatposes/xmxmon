@@ -21,9 +21,6 @@ ARGS = [a for a in sys.argv[1:]]
 DETAILED = "--detailed" in ARGS or "-d" in ARGS
 POS = [a for a in ARGS if not a.startswith("-")]
 BASE = POS[0] if POS else "http://localhost:9143"
-XMX = [("INT2", "XVE_INST_EXECUTED_XMX_INT2"), ("INT4", "XVE_INST_EXECUTED_XMX_INT4"),
-       ("INT8", "XVE_INST_EXECUTED_XMX_INT8"), ("FP16", "XVE_INST_EXECUTED_XMX_FP16"),
-       ("BF16", "XVE_INST_EXECUTED_XMX_BF16")]
 
 def si(v):
     for t, s in ((1e12, "T"), (1e9, "G"), (1e6, "M"), (1e3, "k")):
@@ -49,6 +46,9 @@ def fmt(value, unit):
         s = f"{value:.2f}x"
     elif unit == "/s":
         s = f"{si(value).strip()}/s"
+    elif unit == "B/s":
+        g = value / 1e9
+        s = f"{g:.1f}G" if g >= 0.1 else f"{value / 1e6:.0f}M"
     elif abs(value) < 100:
         s = f"{value:.3f}"
     else:
@@ -65,7 +65,60 @@ SHORT = {
     "barrier share": "barriers", "memory ops / XMX": "memop/XMX",
     "divergent issue": "divergent", "icache miss": "icache miss",
     "multi-pipe active": "multi-pipe",
+    # ComputeBasic / MemoryProfile / DeviceCacheProfile
+    "send / issued": "send/iss", "dispatch overhead": "dispatch",
+    "compute engine busy": "cmd busy", "L1 hit rate": "L1 hit",
+    "L3 hit rate": "L3 hit", "VRAM read": "VRAM rd", "VRAM write": "VRAM wr",
+    "PCIe host→GPU": "PCIe→gpu", "GPU→sysmem": "gpu→sys",
+    "SLM traffic": "SLM", "kernel dispatches": "kernel disp",
+    "read coalescing": "rd coalesc", "write coalescing": "wr coalesc",
+    "L3 superq full": "L3 superq", "mem queue full": "mem q full",
+    "copy engine stall": "copy stall", "L1 partial writes": "L1 partial",
+    "SLM bank conflicts": "SLM bankcf",
+    "L3 from load/store": "L3 ld/st", "L3 from instruction": "L3 icache",
+    "L3 from sampler": "L3 sampler", "load/store L3 hit": "ld/st L3hit",
+    "L3 busy": "L3 busy", "L3→VRAM read": "L3→vram r",
+    "L3→VRAM write": "L3→vram w",
 }
+
+
+def hero_lines(dev, s, peaks, barw):
+    """Left-column bars/rates from the active group's hero spec (xmxderive).
+
+    Each spec item renders itself; peaks are held per (device, metric) so bars
+    keep a high-water mark across the session, matching the WUI's autoscale.
+    """
+    g, r = s.get("gauges", {}), s.get("rates", {})
+    lines = []
+    for item in xmxderive.hero(s.get("group")):
+        kind, label = item[0], item[1]
+        if kind == "pct":
+            v = g.get(item[2], 0.0)
+            pk = peaks[dev, item[2]] = max(peaks.get((dev, item[2]), 0), v)
+            lines.append(f" {label:9s}[{bar(v, barw, pk)}]{v:5.1f}%")
+        elif kind == "rate":
+            v = r.get(item[2], 0.0)
+            pk = peaks[dev, item[2]] = max(peaks.get((dev, item[2]), 0), v) or 1
+            mark = "" if v > 0 else " (idle)"
+            lines.append(f" {label:9s}[{bar(v / pk * 100, barw)}]{si(v)}/s{mark}")
+        elif kind == "xmxgroup":
+            keys = [k for _, k in item[2]]
+            for k in keys:
+                peaks[dev, k] = max(peaks.get((dev, k), 0), r.get(k, 0.0))
+            gmax = max((peaks.get((dev, k), 0) for k in keys), default=1) or 1
+            for sub, k in item[2]:
+                v = r.get(k, 0.0)
+                mark = "" if v > 0 else " (idle)"
+                lines.append(f" {label} {sub:5s}[{bar(v / gmax * 100, barw)}]"
+                             f"{si(v)}/s{mark}")
+        elif kind in ("rwgb", "rwtx64"):
+            scale = (64 if kind == "rwtx64" else 1) / 1e9
+            rd = r.get(item[2][0], 0) * scale
+            wr = r.get(item[2][1], 0) * scale
+            lines.append(f" {label} R{rd:7.1f} W{wr:6.1f} GB/s")
+        elif kind == "freq":
+            lines.append(f" {label} {g.get(item[2], 0):.0f} MHz")
+    return lines
 
 
 def device_columns(dev, s, peaks, detailed, barw, right_w=42):
@@ -75,27 +128,8 @@ def device_columns(dev, s, peaks, detailed, barw, right_w=42):
     long metric list doesn't stretch the block far past the left column and
     push the next device off a standard 24-line terminal.
     """
-    g, r = s.get("gauges", {}), s.get("rates", {})
-    left, right = [], []
-
-    for label, key in (("busy", "GPU_BUSY"), ("XVE act", "XVE_ACTIVE"),
-                       ("occupancy", "XVE_THREADS_OCCUPANCY_ALL")):
-        v = g.get(key, 0.0)
-        pk = peaks[dev, key] = max(peaks.get((dev, key), 0), v)
-        left.append(f" {label:9s}[{bar(v, barw, pk)}]{v:5.1f}%")
-
-    xmx_max = max((peaks.get((dev, k), 0) for _, k in XMX), default=1) or 1
-    for label, key in XMX:
-        v = r.get(key, 0.0)
-        pk = peaks[dev, key] = max(peaks.get((dev, key), 0), v)
-        mark = "" if v > 0 else " (idle)"
-        left.append(f" XMX {label:5s}[{bar(v / xmx_max * 100, barw)}]"
-                    f"{si(v)}/s{mark}")
-
-    rd = r.get("GPU_MEMORY_BYTE_READ", 0) / 1e9
-    wr = r.get("GPU_MEMORY_BYTE_WRITE", 0) / 1e9
-    left.append(f" mem R{rd:7.1f} W{wr:6.1f} GB/s")
-    left.append(f" freq {g.get('AvgGpuCoreFrequencyMHz', 0):.0f} MHz")
+    left = hero_lines(dev, s, peaks, barw)
+    right = []
 
     if detailed:
         cells = [f" {SHORT.get(d['label'], d['label'])[:12]:12s}"
@@ -118,13 +152,19 @@ def raw_block(s, width):
     merged = dict(s.get("rates", {}))
     merged.update(s.get("gauges", {}))
     cells = []
-    for group, items in xmxderive.raw_rows(merged):
+    for group, items in xmxderive.raw_rows(merged, s.get("group")):
         for k, val in items:
             short = (k.replace("XVE_INST_EXECUTED_", "")
                       .replace("COMMAND_PARSER_COMPUTE_ENGINE_DISPATCH_KERNEL_COUNT",
                                "KERNELS")
                       .replace("GPGPU_THREADGROUP_COUNT", "THREADGROUPS")
-                      .replace("GPU_MEMORY_BYTE_", "MEM_"))[:14]
+                      .replace("HOST_TO_GPUMEM_TRANSACTION_", "PCIe_")
+                      .replace("SYSMEM_TRANSACTION_", "SYS_")
+                      .replace("GPU_MEMORY_32B_TRANSACTION_", "32B_")
+                      .replace("GPU_MEMORY_64B_TRANSACTION_", "64B_")
+                      .replace("LOAD_STORE_CACHE_", "L1_")
+                      .replace("GPU_MEMORY_BYTE_", "MEM_")
+                      .replace("GPU_MEMORY_", "GTI_"))[:14]
             cells.append(f" {short:14s}{si(val).strip():>8s}/s")
     if not cells:
         return []
