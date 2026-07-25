@@ -55,9 +55,18 @@ period change), and `_spawn` **clears the rolling window** on the switch so the
 next aggregation isn't a blend of two groups' metrics. It is in-memory only, so a
 restart reverts to config. Constraints, both from the hardware: the switch is
 device-wide (every viewer sees it) and refused mid-capture (one ndjson, one
-schema). Allowed targets are `xmxderive.SWITCHABLE`; anything else returns 409.
-The web UI rebuilds a device's panel when it sees the group change in the
-snapshot, so the charts follow.
+schema). The web UI rebuilds a device's panel when it sees the group change in
+the snapshot, so the charts follow.
+
+Allowed targets are enumerated per device at startup by `enumerate_groups`
+(which parses `xmxmon --list`), not hardcoded — so the menu reflects exactly what
+a card supports. `xmxderive.SWITCHABLE` only sets the *preferred order* (profiled
+groups first); `UNSWITCHABLE_GROUPS` (`EuStallSampling`, `TestOa`) are filtered
+out because they need a different Level Zero mechanism. A switch to a group with
+no profile still works — `derive`/`view` fall back to the VectorEngineProfile
+profile, so the curated ratios mostly drop out but the raw counters and any
+shared metrics (GPU busy, VRAM bytes) still render. The TUI picker also offers an
+"apply to all devices" entry that sets every card to the next group chosen.
 
 ## The profile format (`xmxderive.py`)
 

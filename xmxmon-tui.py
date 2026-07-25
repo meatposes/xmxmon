@@ -36,31 +36,38 @@ def post(path, obj):
 def menu_screen(snap, menu, width):
     """Full-screen picker for the [g] group switch.
 
-    Two stages: choose a device (skipped when only one), then choose the group
-    for it. The device's current group is marked. Selection is by number.
+    Two stages: choose a device (skipped when only one), then choose the group.
+    The current group is marked; a final "apply to ALL devices" item (shown
+    only with more than one device) sets every card to the next group picked.
+    Items are lettered so the list can exceed nine entries.
     """
     devs = sorted(snap.items())
     lines = ["\x1b[H\x1b[2Jxmxmon — switch metric group      "
-             "[1-9] select   [Esc] cancel", ""]
+             "[letter] select   [Esc] cancel", ""]
     if menu["stage"] == "dev":
         lines.append(" choose device:")
-        for i, (dev, s) in enumerate(devs, 1):
-            lines.append(f"   {i})  device {dev}    (now: {s.get('group', '?')})")
+        for i, (dev, s) in enumerate(devs):
+            lines.append(f"   {chr(97 + i)})  device {dev}    "
+                         f"(now: {s.get('group', '?')})")
     else:
         dev = menu["dev"]
         s = snap.get(dev, {})
         sw = s.get("switchable") or []
-        cur = s.get("group")
-        lines.append(f" device {dev} — choose group:")
-        for i, g in enumerate(sw, 1):
-            lines.append(f"   {i}) {'*' if g == cur else ' '} {g}")
-        if s.get("capture"):
+        allmode = menu.get("all")
+        lines.append(f" {'ALL devices' if allmode else 'device ' + str(dev)}"
+                     f" — choose group:")
+        for i, g in enumerate(sw):
+            mark = "*" if (not allmode and g == s.get("group")) else " "
+            lines.append(f"   {chr(97 + i)}) {mark} {g}")
+        if not allmode and len(devs) > 1:
+            lines.append(f"   {chr(97 + len(sw))})    → apply to ALL devices")
+        if not allmode and s.get("capture"):
             lines.append("")
-            lines.append(" note: this device is CAPTURING — switch will be "
-                         "refused until you stop it")
+            lines.append(" note: this device is CAPTURING — switch refused "
+                         "until you stop it")
     lines.append("")
-    lines.append(" the switch is device-wide (every viewer sees it) and "
-                 "reverts to config on restart")
+    lines.append(" switch is device-wide (every viewer sees it) and reverts "
+                 "to config on restart")
     return lines
 
 
@@ -283,18 +290,28 @@ def main():
                     if menu is not None:               # menu captures all keys
                         if ch in ("\x1b", "q"):
                             menu = None
-                        elif ch.isdigit():
+                        elif ch.isalpha() and len(ch) == 1:
                             devs = sorted(snap.items())
-                            n = int(ch)
+                            idx = ord(ch.lower()) - 97
                             if menu["stage"] == "dev":
-                                if 1 <= n <= len(devs):
-                                    menu = {"stage": "grp", "dev": devs[n - 1][0]}
+                                if 0 <= idx < len(devs):
+                                    menu = {"stage": "grp", "dev": devs[idx][0],
+                                            "all": False}
                             else:
                                 sw = snap.get(menu["dev"], {}).get("switchable") or []
-                                if 1 <= n <= len(sw):
+                                if menu.get("all"):
+                                    if 0 <= idx < len(sw):
+                                        for d, _ in devs:
+                                            post("/group", {"device": int(d),
+                                                            "group": sw[idx]})
+                                        menu = None
+                                elif 0 <= idx < len(sw):
                                     post("/group", {"device": int(menu["dev"]),
-                                                    "group": sw[n - 1]})
+                                                    "group": sw[idx]})
                                     menu = None
+                                elif idx == len(sw) and len(devs) > 1:
+                                    menu = {"stage": "grp", "dev": menu["dev"],
+                                            "all": True}
                         break
                     if ch == "q":
                         return

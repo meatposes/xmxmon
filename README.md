@@ -187,12 +187,20 @@ groups:
 ```
 
 **Switch on the fly.** You don't have to edit the config and restart to change
-lens. The web UI has a group dropdown in each device header, and the TUI cycles a
-device's group with `g` — both hit `POST /group`. The change is in-memory only, so
-the next daemon start returns to whatever `xmxmon.yaml` specifies. Two caveats,
-both from the hardware: counters are device-wide, so the switch affects **every**
-viewer of that GPU, not just you; and it is refused while that device is
-capturing (stop the capture first, so the ndjson keeps a single schema).
+lens. The web UI has a group dropdown in each device header; the TUI's `g` key
+opens a picker (choose device, then group, with an "apply to all devices" entry
+at the end). Both hit `POST /group`. The change is in-memory only, so the next
+daemon start returns to whatever `xmxmon.yaml` specifies. Two caveats, both from
+the hardware: counters are device-wide, so the switch affects **every** viewer of
+that GPU, not just you; and it is refused while that device is capturing (stop the
+capture first, so the ndjson keeps a single schema).
+
+The picker offers **every group the device exposes** (the daemon enumerates them
+at startup), with the four profiled groups plus `VectorEngineStalls` listed
+first. `EuStallSampling` and `TestOa` are omitted — they use a different sampling
+mechanism, not the time-based streamer, and would fail to open. A group without a
+curated view (e.g. `RenderBasic`) still samples fine; its metrics show through the
+default view and the raw-counter panel, just without a purpose-built layout.
 
 Everything downstream keys off the active group automatically. `xmx-summary.py`
 detects the group from a capture's columns, so offline analysis needs no flag.

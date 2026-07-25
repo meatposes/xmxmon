@@ -26,6 +26,7 @@ Config: YAML file (default /etc/xmxmon.yaml, override with XMXMOND_CONFIG).
 import json
 import os
 import queue
+import re
 import signal
 import subprocess
 import threading
@@ -60,6 +61,48 @@ CFG = dict(DEFAULTS)
 # percentage set lives in xmxderive so the offline summary agrees.
 SKIP = {"t", "GpuTime", "GpuCoreClocks", "QueryBeginTime", "ReportReason",
         "ContextIdValid", "ContextId", "SourceId", "StreamMarker"}
+
+# Groups a device lists but that this tool cannot sample: they use a different
+# Level Zero mechanism (EU stall sampling) or are test groups, not the
+# time-based streamer everything here is built on. Offering them would just
+# crash the sampler on open, so they are filtered out of the switchable list.
+UNSWITCHABLE_GROUPS = {"EuStallSampling", "TestOa"}
+
+# device index -> ordered list of switchable metric groups, filled at startup
+# by querying the sampler binary. Profiled groups (those with a curated view)
+# come first, then the rest.
+AVAILABLE = {}
+
+
+def enumerate_groups(binary):
+    """Ask the sampler which metric groups each device exposes.
+
+    `--list` only enumerates; it opens no streamer, so it is safe to run
+    alongside the daemon's own samplers. Falls back to the profiled set if the
+    binary can't be queried, so a switch menu is never empty.
+    """
+    result = {}
+    try:
+        r = subprocess.run([binary, "--list"], capture_output=True,
+                           text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return result
+    cur = None
+    for line in r.stdout.splitlines():
+        m = re.match(r"device (\d+):", line)
+        if m:
+            cur = int(m.group(1))
+            result[cur] = []
+        elif cur is not None and line[:1] in (" ", "\t") and line.split():
+            name = line.split()[0]
+            if name not in UNSWITCHABLE_GROUPS:
+                result[cur].append(name)
+    # Profiled groups first (in their canonical order), then whatever remains.
+    for d, groups in result.items():
+        profiled = [g for g in xmxderive.SWITCHABLE if g in groups]
+        rest = [g for g in groups if g not in profiled]
+        result[d] = profiled + rest
+    return result
 
 
 class Sampler:
@@ -127,6 +170,10 @@ class Sampler:
                 pass
             time.sleep(0.5)
 
+    def _switchable(self):
+        """Groups this device can switch to (enumerated, profiled-first)."""
+        return AVAILABLE.get(self.device) or xmxderive.SWITCHABLE
+
     def snapshot(self):
         with self.lock:
             rows = [m for _, m in self.window]
@@ -135,12 +182,12 @@ class Sampler:
         if not rows:
             return {"device": self.device, "n": 0, "capture": cap,
                     "group": self.group, "view": xmxderive.view(self.group),
-                    "switchable": xmxderive.SWITCHABLE}
+                    "switchable": self._switchable()}
         secs = self.cfg["window_s"]
         out = {"device": self.device, "n": len(rows), "capture": cap,
                "group": self.group, "period_ms": self.period_ms,
                "view": xmxderive.view(self.group),
-               "switchable": xmxderive.SWITCHABLE, "rates": {}, "gauges": {}}
+               "switchable": self._switchable(), "rates": {}, "gauges": {}}
         keys = rows[-1].keys()
         for k in keys:
             if k in SKIP:
@@ -198,8 +245,10 @@ class Sampler:
         schemas into one ndjson. The switch is device-wide (counters are), so
         every viewer of this GPU sees the new group, not just the caller.
         """
-        if group not in xmxderive.SWITCHABLE:
-            return (False, f"unknown group (choose from {xmxderive.SWITCHABLE})")
+        allowed = self._switchable()
+        if group not in allowed:
+            return (False, f"group not available on this device (choose from "
+                           f"{allowed})")
         with self.lock:
             if self.capture:
                 return (False, "capturing — stop the capture first")
@@ -357,6 +406,9 @@ def main():
     else:
         print(f"WARNING: no config file at {path}; using built-in defaults")
     os.environ.setdefault("ZET_ENABLE_METRICS", "1")
+    # Enumerate switchable groups before any sampler opens a streamer, so the
+    # switch menus reflect what each device actually supports.
+    AVAILABLE.update(enumerate_groups(cfg["binary"]))
     for d in cfg["devices"]:
         SAMPLERS[d] = Sampler(cfg, d)
     threading.Thread(target=broadcaster, daemon=True).start()
