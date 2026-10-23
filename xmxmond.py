@@ -238,6 +238,12 @@ class Sampler:
         with self.lock:
             if self.capture:
                 return None
+            # A group-switch respawn is in flight: the dying child may still
+            # have rows in the pipe. Teeing them next to the new group's
+            # rows would mix two schemas in one ndjson — the mirror image of
+            # refusing a group switch mid-capture.
+            if self._want_group != self.group:
+                return None
             self.capture = {"name": name, "path": path, "rows": 0,
                             "file": open(path, "w"), "start": time.time(),
                             "until": time.time() + duration_s if duration_s else None}
@@ -412,7 +418,9 @@ class Handler(BaseHTTPRequestHandler):
                 p = SAMPLERS[d].start_capture(
                     body.get("name", "capture"), body.get("duration_s"),
                     body.get("period_ms"))
-                started[d] = p or "already capturing"
+                started[d] = p or (
+                    "already capturing" if SAMPLERS[d].capture
+                    else "group switch in progress")
             self._send(200, json.dumps({"started": started}))
         elif self.path == "/capture/stop":
             dev = body.get("device")

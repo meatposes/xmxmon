@@ -69,7 +69,12 @@ PERCENT = {
 def is_percent(metric):
     """True if a metric is a level (averaged), not a per-second counter."""
     return (metric in PERCENT or metric.startswith("XVE_STALL_")
-            or metric.endswith("_UTILIZATION") or metric.endswith("_RATE"))
+            or metric.endswith("_UTILIZATION") or metric.endswith("_RATE")
+            # Xe2 VectorEngineStalls family: queue gauges whose names end in
+            # the level words but were once summed as counters.
+            or metric.endswith("_STALL") or metric.endswith("_ACTIVE")
+            or metric.endswith("_INPUT_AVAILABLE")
+            or metric.endswith("_OUTPUT_READY"))
 
 
 def _has(v, keys):
@@ -670,8 +675,12 @@ RAW_GROUPS = _RAW_VEP
 
 # Signature metrics unique to each group, so an offline capture can be matched
 # to its profile without the group being recorded per row.
+# Signatures are concrete metric names seen in real captures. The stalls
+# breakdown on Xe2 is XVE_STALL_<reason> (ALUWR, BARRIER, CONTROL, INSTFETCH,
+# OTHER, PIPESTALL, PS_DEPENDENCY, SBID, SENDWR) — there is no XVE_STALL_ALLOC.
 _SIGNATURES = [
-    ("VectorEngineStalls", ("XVE_STALL_ALLOC",)),
+    ("VectorEngineStalls", ("XVE_STALL_ALUWR", "XVE_STALL_BARRIER",
+                            "XVE_STALL_INSTFETCH")),
     ("VectorEngineProfile", ("XVE_INST_EXECUTED_XMX_FP16",)),
     ("MemoryProfile", ("GPU_MEMORY_32B_TRANSACTION_READ",)),
     ("DeviceCacheProfile", ("ICACHE_L3_READ", "GPU_MEMORY_READ")),

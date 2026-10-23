@@ -16,6 +16,7 @@
 #include <level_zero/ze_api.h>
 #include <level_zero/zet_api.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cinttypes>
@@ -265,33 +266,71 @@ int main(int argc, char** argv) {
             break;
         }
 
-        uint32_t nvals = 0;
-        r = zetMetricGroupCalculateMetricValues(
-                group, ZET_METRIC_GROUP_CALCULATION_TYPE_METRIC_VALUES,
-                rawSize, raw.data(), &nvals, nullptr);
-        if (r != ZE_RESULT_SUCCESS || nvals == 0) continue;
-        vals.resize(nvals);
-        r = zetMetricGroupCalculateMetricValues(
-                group, ZET_METRIC_GROUP_CALCULATION_TYPE_METRIC_VALUES,
-                rawSize, raw.data(), &nvals, vals.data());
-        if (r != ZE_RESULT_SUCCESS) continue;
+        // A single raw report may carry one metric-value set per sub-device.
+        // Decoding that through the single-set API silently misindexes the
+        // buffer, which shows up as windows where the scalar device counters
+        // look sane while every XVE counter is exactly 0.  Prefer the
+        // multi-set calculation and fall back to the old one if unsupported.
+        std::vector<uint32_t> setCounts;
+        uint32_t nsets = 0, nvals = 0;
+        bool multiSet = false;
+        {
+            uint32_t probeSets = 0, probeVals = 0;
+            if (zetMetricGroupCalculateMultipleMetricValuesExp(
+                    group, ZET_METRIC_GROUP_CALCULATION_TYPE_METRIC_VALUES,
+                    rawSize, raw.data(), &probeSets, &probeVals, nullptr,
+                    nullptr) == ZE_RESULT_SUCCESS &&
+                probeSets > 0 && probeVals > 0) {
+                setCounts.resize(probeSets);
+                vals.resize(probeVals);
+                r = zetMetricGroupCalculateMultipleMetricValuesExp(
+                    group, ZET_METRIC_GROUP_CALCULATION_TYPE_METRIC_VALUES,
+                    rawSize, raw.data(), &probeSets, &probeVals,
+                    setCounts.data(), vals.data());
+                if (r == ZE_RESULT_SUCCESS) {
+                    nsets = probeSets;
+                    nvals = probeVals;
+                    multiSet = true;
+                }
+            }
+        }
+        if (!multiSet) {
+            r = zetMetricGroupCalculateMetricValues(
+                    group, ZET_METRIC_GROUP_CALCULATION_TYPE_METRIC_VALUES,
+                    rawSize, raw.data(), &nvals, nullptr);
+            if (r != ZE_RESULT_SUCCESS || nvals == 0) continue;
+            vals.resize(nvals);
+            r = zetMetricGroupCalculateMetricValues(
+                    group, ZET_METRIC_GROUP_CALCULATION_TYPE_METRIC_VALUES,
+                    rawSize, raw.data(), &nvals, vals.data());
+            if (r != ZE_RESULT_SUCCESS) continue;
+            nsets = 1;
+            setCounts.assign(1, nvals);
+        }
 
-        // nvals = nreports_in_batch * nm
-        for (uint32_t off = 0; off + nm <= nvals; off += nm) {
+        auto emit_row = [&](const zet_typed_value_t* v) {
             if (opt.json) fprintf(out, "{\"t\":%.3f", t);
             else          fprintf(out, "%.3f", t);
             for (size_t j = 0; j < nm; j++) {
-                double v = value_as_double(vals[off + j]);
+                double d = value_as_double(v[j]);
                 if (opt.json) fprintf(out, ",\"%s\":%g", metrics[j].name.c_str(),
-                                      std::isfinite(v) ? v : 0.0);
-                else          fprintf(out, ",%g", v);
-                if (std::isfinite(v)) {
-                    sum[j] += v;
-                    if (v > peak[j]) peak[j] = v;
+                                      std::isfinite(d) ? d : 0.0);
+                else          fprintf(out, ",%g", d);
+                if (std::isfinite(d)) {
+                    sum[j] += d;
+                    if (d > peak[j]) peak[j] = d;
                 }
             }
             fprintf(out, opt.json ? "}\n" : "\n");
             nreports++;
+        };
+
+        // Every set holds `count` values; one report is nm consecutive values.
+        uint32_t off = 0;
+        for (uint32_t s = 0; s < nsets && off < nvals; s++) {
+            const uint32_t count = std::min<uint32_t>(setCounts[s], nvals - off);
+            for (uint32_t o = 0; o + nm <= count; o += nm) emit_row(&vals[off + o]);
+            off += count;
         }
         fflush(out);
     }
